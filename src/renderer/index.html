@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Attune Terminal</title>
+  <link rel="stylesheet" href="../../dist/xterm.css">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Launch Screen -->
+  <div id="launcher">
+    <div class="launcher-content">
+      <div class="launcher-logo">
+        <div class="logo-mark">A</div>
+        <h1>Attune Terminal</h1>
+        <p class="launcher-subtitle">Claude Code for your team</p>
+      </div>
+
+      <div class="launcher-directory">
+        <label>Working Directory</label>
+        <div class="directory-display">
+          <span id="directory-path">Loading...</span>
+          <button id="btn-change-dir" class="btn-secondary">Change</button>
+        </div>
+      </div>
+
+      <button id="btn-start" class="btn-primary">Start Claude Code</button>
+    </div>
+  </div>
+
+  <!-- Main App -->
+  <div id="app-container" class="hidden">
+    <!-- Tab Bar -->
+    <div id="tab-bar">
+      <div id="tab-bar-drag" class="drag-region"></div>
+      <div id="tabs"></div>
+      <button id="btn-new-tab" class="tab-btn-new" title="New tab">+</button>
+    </div>
+
+    <!-- Workspace -->
+    <div id="workspace">
+      <!-- Terminal Area -->
+      <div id="terminal-area">
+        <div id="terminal-container"></div>
+      </div>
+
+      <!-- Sidebar -->
+      <div id="sidebar">
+        <!-- Status Section -->
+        <div class="sidebar-section">
+          <div class="sidebar-section-header">Status</div>
+          <div id="session-status" class="status-display">
+            <div class="status-indicator status-launching"></div>
+            <span class="status-text">Launching...</span>
+          </div>
+        </div>
+
+        <!-- Slash Commands -->
+        <div class="sidebar-section">
+          <div class="sidebar-section-header">Commands</div>
+          <div id="slash-commands" class="command-list"></div>
+        </div>
+
+        <!-- Quick Reference -->
+        <div class="sidebar-section">
+          <div class="sidebar-section-header">Quick Reference</div>
+          <div id="quick-tips" class="tips-container"></div>
+        </div>
+
+        <!-- Active Sessions -->
+        <div class="sidebar-section">
+          <div class="sidebar-section-header">Sessions</div>
+          <div id="session-list" class="session-list"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="../../dist/renderer.js"></script>
+</body>
+</html>

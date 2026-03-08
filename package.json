@@ -1,0 +1,23 @@
+{
+  "name": "attune-terminal",
+  "version": "0.1.0",
+  "description": "Lightweight macOS terminal wrapper for running Claude Code",
+  "main": "src/main.js",
+  "scripts": {
+    "build": "node scripts/build.js",
+    "start": "npm run build && electron .",
+    "dev": "npm run build && NODE_ENV=development electron .",
+    "postinstall": "npx @electron/rebuild -f -w node-pty"
+  },
+  "dependencies": {
+    "node-pty": "^1.0.0",
+    "@xterm/xterm": "^5.5.0",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/addon-web-links": "^0.11.0"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^3.7.0",
+    "electron": "^33.0.0",
+    "esbuild": "^0.24.0"
+  }
+}
