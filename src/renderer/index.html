@@ -29,12 +29,31 @@
 
     <!-- Workspace -->
     <div id="workspace">
+      <!-- File Explorer (left side) -->
+      <div id="file-explorer">
+        <div class="file-explorer-header">
+          <span class="file-explorer-title">Files</span>
+          <button id="btn-file-explorer-close" class="file-explorer-close" title="Close file explorer">&times;</button>
+        </div>
+        <div id="file-tree" class="file-tree"></div>
+      </div>
+      <button id="btn-file-explorer-toggle" class="file-explorer-toggle" title="Toggle file explorer">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <path d="M10 4L6 8L10 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+
       <!-- Terminal Area (holds per-tab content: launchers and terminals) -->
       <div id="terminal-area">
         <div id="terminal-container"></div>
       </div>
 
       <!-- Sidebar -->
+      <button id="btn-sidebar-toggle" class="sidebar-toggle" title="Toggle sidebar">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <path d="M6 4L10 8L6 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
       <div id="sidebar">
         <!-- Quick Actions -->
         <div class="sidebar-section sidebar-actions">

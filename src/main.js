@@ -167,6 +167,31 @@ ipcMain.on('notify', (event, { title, body }) => {
   }
 });
 
+// IPC: List directory contents for file explorer
+ipcMain.handle('list-directory', async (event, { dirPath }) => {
+  try {
+    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+    const items = [];
+    for (const entry of entries) {
+      // Skip hidden files/folders by default
+      if (entry.name.startsWith('.')) continue;
+      items.push({
+        name: entry.name,
+        path: path.join(dirPath, entry.name),
+        isDirectory: entry.isDirectory(),
+      });
+    }
+    // Sort: folders first, then alphabetical
+    items.sort((a, b) => {
+      if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
+      return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+    });
+    return items;
+  } catch (e) {
+    return [];
+  }
+});
+
 // IPC: File picker (insert path into terminal)
 ipcMain.handle('select-file', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {

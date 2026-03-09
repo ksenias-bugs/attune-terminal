@@ -1,5 +1,6 @@
 import { TerminalSession, getTerminalTheme } from './terminal.js';
 import { Sidebar } from './sidebar.js';
+import { FileExplorer } from './file-explorer.js';
 
 class AttuneApp {
   constructor() {
@@ -7,6 +8,7 @@ class AttuneApp {
     this.tabs = new Map();
     this.activeTabId = null;
     this.sidebar = null;
+    this.fileExplorer = null;
     this.defaultDirectory = null;
     this.tabCounter = 0;
     this.isDark = false;
@@ -36,6 +38,48 @@ class AttuneApp {
         this.handleSessionClick(sessionId);
       }
     );
+
+    // File explorer
+    this.fileExplorer = new FileExplorer((filePath) => {
+      const tab = this.tabs.get(this.activeTabId);
+      if (tab && tab.state === 'terminal' && tab.terminal) {
+        window.attune.sendInput(tab.id, filePath);
+        tab.terminal.focus();
+      }
+    });
+
+    // File explorer toggle
+    const fileExplorerCollapsed = localStorage.getItem('attune-file-explorer-collapsed') !== 'false';
+    if (fileExplorerCollapsed) {
+      document.body.classList.add('file-explorer-collapsed');
+    }
+
+    const toggleFileExplorer = () => {
+      document.body.classList.toggle('file-explorer-collapsed');
+      localStorage.setItem('attune-file-explorer-collapsed', document.body.classList.contains('file-explorer-collapsed'));
+      setTimeout(() => {
+        const tab = this.tabs.get(this.activeTabId);
+        if (tab && tab.terminal) tab.terminal.focus();
+      }, 250);
+    };
+
+    document.getElementById('btn-file-explorer-toggle').addEventListener('click', toggleFileExplorer);
+    document.getElementById('btn-file-explorer-close').addEventListener('click', toggleFileExplorer);
+
+    // Sidebar toggle
+    const sidebarCollapsed = localStorage.getItem('attune-sidebar-collapsed') === 'true';
+    if (sidebarCollapsed) {
+      document.body.classList.add('sidebar-collapsed');
+    }
+    document.getElementById('btn-sidebar-toggle').addEventListener('click', () => {
+      document.body.classList.toggle('sidebar-collapsed');
+      localStorage.setItem('attune-sidebar-collapsed', document.body.classList.contains('sidebar-collapsed'));
+      // Re-fit terminals after sidebar animation
+      setTimeout(() => {
+        const tab = this.tabs.get(this.activeTabId);
+        if (tab && tab.terminal) tab.terminal.focus();
+      }, 250);
+    });
 
     // Theme toggle
     document.getElementById('btn-theme-toggle').addEventListener('click', () => {
@@ -148,8 +192,9 @@ class AttuneApp {
     this.addTabElement(id, 'New Session');
     this.switchToTab(id);
 
-    // Load recent sessions for the default directory
+    // Load recent sessions and file explorer for the default directory
     this.sidebar.loadRecentSessions(this.defaultDirectory);
+    this.fileExplorer.setDirectory(this.defaultDirectory);
   }
 
   buildLauncherElement(tabId) {
@@ -208,6 +253,7 @@ class AttuneApp {
         dirPathEl.textContent = this.shortenPath(dir);
         dirPathEl.title = dir;
         this.sidebar.loadRecentSessions(dir);
+        this.fileExplorer.setDirectory(dir);
       }
     });
 
@@ -238,14 +284,18 @@ class AttuneApp {
     }
 
     // Create terminal container inside the wrapper
-    const termWrapper = document.createElement('div');
-    termWrapper.className = 'tab-terminal-wrapper';
-    tab.container.appendChild(termWrapper);
+    const termOuter = document.createElement('div');
+    termOuter.className = 'tab-terminal-wrapper';
+    tab.container.appendChild(termOuter);
+
+    const termInner = document.createElement('div');
+    termInner.className = 'tab-terminal-inner';
+    termOuter.appendChild(termInner);
 
     const terminal = new TerminalSession(
       tabId,
       directory,
-      termWrapper,
+      termInner,
       (status, elapsed) => {
         this.updateTabStatus(tabId, status);
       },
@@ -263,8 +313,9 @@ class AttuneApp {
 
     terminal.start(command);
 
-    // Refresh sidebar recent sessions for this directory
+    // Refresh sidebar and file explorer for this directory
     this.sidebar.loadRecentSessions(directory);
+    this.fileExplorer.setDirectory(directory);
   }
 
   addTabElement(id, label) {
@@ -323,9 +374,10 @@ class AttuneApp {
       tab.terminal.focus();
     }
 
-    // Update sidebar recent sessions for this tab's directory
+    // Update sidebar and file explorer for this tab's directory
     if (tab) {
       this.sidebar.loadRecentSessions(tab.directory);
+      this.fileExplorer.setDirectory(tab.directory);
     }
   }
 

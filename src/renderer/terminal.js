@@ -4,55 +4,55 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
 
 const LIGHT_THEME = {
-  background: '#FFFFFF',            // White — default surface
-  foreground: '#0F172A',            // Ink — primary text
-  cursor: '#145456',                // Deep Teal — brand primary
-  cursorAccent: '#FFFFFF',          // White
-  selectionBackground: '#cde4e2',   // Soft teal selection
-  selectionForeground: '#0F172A',   // Ink
-  // ANSI colors — kept recognizable, tuned for contrast on white
-  black: '#0F172A',                 // Ink
+  background: '#FAFAF8',            // Off-white — default surface
+  foreground: '#1A1A1A',            // Near-black — primary text
+  cursor: '#C4795B',                // Warm amber — brand cursor
+  cursorAccent: '#FAFAF8',          // Off-white
+  selectionBackground: '#E8D5C4',   // Warm selection
+  selectionForeground: '#1A1A1A',   // Near-black
+  // ANSI colors — kept recognizable, tuned for contrast on off-white
+  black: '#1A1A1A',                 // Near-black
   red: '#c0392b',
   green: '#2d6a4f',
   yellow: '#b87d08',
-  blue: '#145456',                  // Deep Teal as blue
+  blue: '#2563EB',                  // Standard blue
   magenta: '#5b4a8a',
-  cyan: '#0D9488',                  // Teal
-  white: '#6b7f9e',                 // Muted Dark Slate
-  brightBlack: '#1C263D',           // Dark Slate
+  cyan: '#0D9488',                  // Teal (secondary accent)
+  white: '#8A8580',                 // Warm muted
+  brightBlack: '#404040',           // Dark gray
   brightRed: '#EA580C',             // Orange accent
   brightGreen: '#3a9066',
-  brightYellow: '#EA580C',          // Orange accent
+  brightYellow: '#C4795B',          // Amber accent
   brightBlue: '#0D9488',            // Teal
   brightMagenta: '#7a65a6',
   brightCyan: '#145456',            // Deep Teal
-  brightWhite: '#F8F8F8',           // Light Gray
+  brightWhite: '#F5F3EF',           // Cream
 };
 
 const DARK_THEME = {
-  background: '#0F172A',            // Ink — brand darkest
-  foreground: '#F8F8F8',            // Light Gray — primary text on dark
-  cursor: '#0D9488',                // Teal — brand cursor
-  cursorAccent: '#0F172A',          // Ink
-  selectionBackground: '#253350',   // Lightened Dark Slate
-  selectionForeground: '#F8F8F8',   // Light Gray
-  // ANSI colors — kept recognizable, tuned for contrast on Ink background
-  black: '#1C263D',                 // Dark Slate
+  background: '#1A1A1A',            // Dark gray — base background
+  foreground: '#F5F3EF',            // Off-white/cream — primary text
+  cursor: '#D4956B',                // Warm amber — brand cursor
+  cursorAccent: '#1A1A1A',          // Dark gray
+  selectionBackground: '#5C4A3A',   // Warm dark selection
+  selectionForeground: '#F5F3EF',   // Off-white
+  // ANSI colors — kept recognizable, tuned for contrast on dark gray
+  black: '#2D2D2D',                 // Medium dark gray
   red: '#e06c75',
   green: '#7cc88d',
-  yellow: '#FF9A26',                // Warm Gold (per §4.2 dark pairing rule)
-  blue: '#0D9488',                  // Teal
+  yellow: '#D4956B',                // Warm amber
+  blue: '#6CA6E8',                  // Soft blue
   magenta: '#b094d4',
-  cyan: '#5cc0b3',                  // Lightened teal for readability
-  white: '#F8F8F8',                 // Light Gray
-  brightBlack: '#5c7090',           // Muted slate
+  cyan: '#5cc0b3',                  // Light teal (secondary)
+  white: '#F5F3EF',                 // Off-white
+  brightBlack: '#787370',           // Warm muted gray
   brightRed: '#e88991',
   brightGreen: '#98d6a5',
-  brightYellow: '#FF9A26',          // Warm Gold
-  brightBlue: '#5cc0b3',            // Lightened teal
+  brightYellow: '#EA580C',          // Orange accent
+  brightBlue: '#5cc0b3',            // Light teal
   brightMagenta: '#c8aee0',
   brightCyan: '#0D9488',            // Teal
-  brightWhite: '#FFFFFF',           // White
+  brightWhite: '#FAFAF8',           // Off-white
 };
 
 export function getTerminalTheme(isDark) {
@@ -180,19 +180,26 @@ export class TerminalSession {
 
     const clean = this.stripAnsi(this.recentOutput);
     const lastChunk = clean.slice(-800);
+    const tail = lastChunk.slice(-100);
 
     let newStatus = this.status;
 
     // Detect Claude Code states from output patterns
-    if (/Allow|approve|[Yy]\/[Nn]|permission/.test(lastChunk.slice(-200))) {
+    // Check approval first (highest priority)
+    if (/[Aa]llow|[Aa]pprove|[Yy]\/[Nn]|[Pp]ermission|Yes\/No/.test(lastChunk.slice(-300))) {
       newStatus = 'approval';
-    } else if (/❯\s*$|>\s*$|\?\s*$/.test(lastChunk.slice(-50))) {
+    }
+    // Check for Claude Code's input prompt — it shows > when waiting for user input
+    // Also check for the prompt appearing after a response ends
+    else if (/>\s*$/.test(tail) || /❯\s*$/.test(tail) || /\?\s*$/.test(tail.slice(-30))) {
       newStatus = 'waiting';
-    } else if (/[Tt]hinking|[Pp]lanning/.test(lastChunk.slice(-200))) {
+    }
+    // Detect active work states
+    else if (/[Tt]hinking|[Pp]lanning|ultra-thinking/i.test(lastChunk.slice(-300))) {
       newStatus = 'thinking';
-    } else if (/[Aa]gent|subagent|[Ss]pawning/.test(lastChunk.slice(-200))) {
+    } else if (/[Aa]gent|subagent|[Ss]pawning/i.test(lastChunk.slice(-300))) {
       newStatus = 'agents';
-    } else if (/[Rr]eading|[Ww]riting|[Ee]diting|[Ss]earching/.test(lastChunk.slice(-200))) {
+    } else if (/[Rr]eading|[Ww]riting|[Ee]diting|[Ss]earching|[Rr]unning/i.test(lastChunk.slice(-300))) {
       newStatus = 'tools';
     } else if (this.status === 'launching') {
       newStatus = 'working';
@@ -204,9 +211,9 @@ export class TerminalSession {
 
       // Notify when Claude needs attention (only for meaningful transitions)
       if (newStatus === 'approval') {
-        window.attune.notify('Claude needs your approval', 'A tool use is waiting for permission.');
+        window.attune.notify('Action Required: Claude needs permission', 'A tool use is waiting for your approval.');
       } else if (newStatus === 'waiting' && prevStatus !== 'launching' && prevStatus !== 'waiting') {
-        window.attune.notify('Claude is done', 'Ready for your next message.');
+        window.attune.notify('Claude finished the task', 'Ready for your next message.');
       }
     }
   }
@@ -224,7 +231,12 @@ export class TerminalSession {
   }
 
   stripAnsi(str) {
-    return str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').replace(/\x1b\][^\x07]*\x07/g, '');
+    return str
+      .replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '')   // CSI sequences (cursor, color, etc.)
+      .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '') // OSC sequences
+      .replace(/\x1b[()][A-Z0-9]/g, '')          // Character set selection
+      .replace(/\x1b[78DEHM]/g, '')               // Single-char escapes
+      .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, ''); // Control chars (keep \n \r \t)
   }
 
   getElapsed() {

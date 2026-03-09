@@ -10,6 +10,8 @@ contextBridge.exposeInMainWorld('attune', {
 
   selectFile: () => ipcRenderer.invoke('select-file'),
 
+  listDirectory: (dirPath) => ipcRenderer.invoke('list-directory', { dirPath }),
+
   notify: (title, body) => ipcRenderer.send('notify', { title, body }),
 
   createPty: (id, directory, command) =>

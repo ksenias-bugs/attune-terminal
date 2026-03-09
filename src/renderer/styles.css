@@ -1,45 +1,45 @@
 /* ---- Theme Variables ---- */
 
 :root {
-  /* Light theme (default) — Attune brand palette per design brief §4.1 */
-  --bg-primary: #FFFFFF;            /* White — default surface */
-  --bg-secondary: #F8F8F8;          /* Light Gray — alt backgrounds */
-  --bg-surface: #f0f7f7;            /* Tinted light surface (teal tint on Light Gray) */
-  --bg-hover: #e2efee;              /* Hover state (subtle teal wash) */
-  --bg-active: #cde4e2;             /* Active state */
-  --border: #d0dedd;                /* Neutral border */
-  --border-light: #e2efee;          /* Lighter border */
+  /* Light theme (default) — Attune warm brand palette */
+  --bg-primary: #FAFAF8;            /* Off-white — default surface */
+  --bg-secondary: #F5F3EF;          /* Cream — alt backgrounds */
+  --bg-surface: #EDEBE7;            /* Warm light surface */
+  --bg-hover: #E5E2DC;              /* Hover state (warm neutral) */
+  --bg-active: #DBD8D1;             /* Active state */
+  --border: #D5D1CA;                /* Warm neutral border */
+  --border-light: #E5E2DC;          /* Lighter border */
 
-  --text-primary: #0F172A;          /* Ink — primary text, headings */
-  --text-secondary: #1C263D;        /* Dark Slate — secondary text, muted labels */
-  --text-muted: #6b7f9e;            /* Softened Dark Slate for muted text */
+  --text-primary: #1A1A1A;          /* Near-black — primary text */
+  --text-secondary: #404040;        /* Dark gray — secondary text */
+  --text-muted: #8A8580;            /* Warm muted text */
 
-  --accent: #145456;                /* Deep Teal — primary brand accent */
-  --accent-dim: #0D9488;            /* Teal — lighter interactive accent */
+  --accent: #C4795B;                /* Warm amber/terracotta — primary accent */
+  --accent-dim: #B06A4E;            /* Darker amber for hover */
   --green: #2d6a4f;
   --yellow: #EA580C;                /* Orange — accent color */
   --red: #c0392b;
   --purple: #5b4a8a;
 
-  /* Attune brand tokens (design brief §4.1 core palette) */
-  --ink: #0F172A;
-  --dark-slate: #1C263D;
+  /* Attune brand tokens */
+  --ink: #1A1A1A;
+  --dark-slate: #2D2D2D;
   --deep-teal: #145456;
   --teal: #0D9488;
   --orange: #EA580C;
-  --warm-gold: #FF9A26;
-  --light-gray: #F8F8F8;
+  --warm-gold: #D4956B;
+  --light-gray: #F5F3EF;
 
   /* Legacy token aliases for compatibility */
-  --forest: #145456;                /* Deep Teal */
-  --forest-mid: #0D9488;            /* Teal */
-  --forest-light: #f0f7f7;
-  --forest-soft: #e2efee;
-  --onsen: #cde4e2;
-  --onsen-light: #f0f7f7;
+  --forest: #C4795B;                /* Amber (primary accent) */
+  --forest-mid: #D4956B;            /* Lighter amber */
+  --forest-light: #F5F3EF;
+  --forest-soft: #EDEBE7;
+  --onsen: #E5E2DC;
+  --onsen-light: #F5F3EF;
   --sunset: #EA580C;                /* Orange */
-  --sunlight: #FF9A26;              /* Warm Gold */
-  --sunlight-light: #fef4e6;
+  --sunlight: #D4956B;              /* Warm amber */
+  --sunlight-light: #FDF6F0;
 
   --font-mono: 'JetBrains Mono', 'SF Mono', 'Menlo', 'Consolas', monospace;
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
@@ -49,46 +49,46 @@
   --traffic-light-width: 78px;
 }
 
-/* Dark theme — Attune brand palette (dark mode, derived from §4.1) */
+/* Dark theme — Attune warm brand palette (dark mode) */
 body[data-theme="dark"] {
-  --bg-primary: #0F172A;            /* Ink — darkest brand color as base */
-  --bg-secondary: #0c1220;          /* Deeper than Ink for layering */
-  --bg-surface: #1C263D;            /* Dark Slate — surface panels */
-  --bg-hover: #253350;              /* Lightened Dark Slate for hover */
-  --bg-active: #2e3d5e;             /* Active state */
-  --border: #253350;                /* Border from Dark Slate family */
-  --border-light: #2e3d5e;          /* Lighter border */
+  --bg-primary: #1A1A1A;            /* Dark gray — base background */
+  --bg-secondary: #222222;          /* Slightly lighter gray — alt backgrounds */
+  --bg-surface: #2D2D2D;            /* Medium dark gray — surface panels */
+  --bg-hover: #383838;              /* Hover state */
+  --bg-active: #404040;             /* Active state */
+  --border: #3D3D3D;                /* Gray border */
+  --border-light: #4A4A4A;          /* Lighter border */
 
-  --text-primary: #F8F8F8;          /* Light Gray — primary text on dark */
-  --text-secondary: #a0b3c8;        /* Softened light for secondary text */
-  --text-muted: #5c7090;            /* Muted text */
+  --text-primary: #F5F3EF;          /* Off-white/cream — primary text on dark */
+  --text-secondary: #B8B3AB;        /* Warm light gray — secondary text */
+  --text-muted: #787370;            /* Warm muted text */
 
-  --accent: #0D9488;                /* Teal — primary accent on dark */
-  --accent-dim: #145456;            /* Deep Teal — dimmed accent */
+  --accent: #D4956B;                /* Warm amber — primary accent on dark */
+  --accent-dim: #C4795B;            /* Slightly darker amber */
   --green: #7cc88d;
-  --yellow: #FF9A26;                /* Warm Gold — warm accent on dark */
+  --yellow: #EA580C;                /* Orange — accent color */
   --red: #e06c75;
   --purple: #b094d4;
 
   /* Attune brand tokens (dark mode adjusted) */
-  --ink: #0F172A;
-  --dark-slate: #1C263D;
+  --ink: #1A1A1A;
+  --dark-slate: #2D2D2D;
   --deep-teal: #145456;
   --teal: #0D9488;
   --orange: #EA580C;
-  --warm-gold: #FF9A26;
-  --light-gray: #F8F8F8;
+  --warm-gold: #D4956B;
+  --light-gray: #F5F3EF;
 
   /* Legacy token aliases for compatibility */
-  --forest: #0D9488;                /* Teal (brightened for dark bg) */
-  --forest-mid: #145456;            /* Deep Teal */
-  --forest-light: #1C263D;          /* Dark Slate as light surface */
-  --forest-soft: #253350;
-  --onsen: #2e3d5e;
-  --onsen-light: #253350;
-  --sunset: #FF9A26;                /* Warm Gold on dark (per §4.2 pairing rule) */
-  --sunlight: #FF9A26;              /* Warm Gold */
-  --sunlight-light: #2a2518;
+  --forest: #D4956B;                /* Amber (primary accent on dark) */
+  --forest-mid: #C4795B;            /* Darker amber */
+  --forest-light: #2D2D2D;         /* Dark gray as surface */
+  --forest-soft: #383838;
+  --onsen: #404040;
+  --onsen-light: #383838;
+  --sunset: #EA580C;                /* Orange */
+  --sunlight: #D4956B;              /* Warm amber */
+  --sunlight-light: #2D2518;
 }
 
 /* ---- Reset ---- */
@@ -280,6 +280,160 @@ body[data-theme="dark"] .icon-moon {
 #workspace {
   display: flex;
   height: calc(100vh - var(--tab-height));
+  position: relative;
+}
+
+/* ---- File Explorer (left panel) ---- */
+
+#file-explorer {
+  width: 260px;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: width 0.2s ease, opacity 0.2s ease;
+}
+
+body.file-explorer-collapsed #file-explorer {
+  width: 0;
+  border-right: none;
+  opacity: 0;
+}
+
+.file-explorer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.file-explorer-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-muted);
+}
+
+.file-explorer-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.file-explorer-close:hover {
+  color: var(--text-primary);
+}
+
+.file-tree {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 0;
+}
+
+.file-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file-row:hover {
+  background: var(--bg-hover);
+}
+
+.file-icon {
+  flex-shrink: 0;
+  font-size: 12px;
+  width: 16px;
+  text-align: center;
+}
+
+.file-icon-folder {
+  color: var(--accent);
+}
+
+.file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.folder-name {
+  font-weight: 500;
+}
+
+.file-explorer-dir-label {
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-bottom: 1px solid var(--border);
+}
+
+.file-row-up {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.file-explorer-empty {
+  padding: 16px;
+  color: var(--text-muted);
+  font-size: 13px;
+  text-align: center;
+}
+
+.file-explorer-toggle {
+  position: absolute;
+  left: 260px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 10;
+  width: 24px;
+  height: 48px;
+  border: 1px solid var(--border);
+  border-left: none;
+  border-radius: 0 6px 6px 0;
+  background: var(--bg-secondary);
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: left 0.2s ease, background 0.15s, color 0.15s;
+}
+
+.file-explorer-toggle:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.file-explorer-toggle svg {
+  transition: transform 0.2s ease;
+}
+
+body.file-explorer-collapsed .file-explorer-toggle {
+  left: 0;
+}
+
+body.file-explorer-collapsed .file-explorer-toggle svg {
+  transform: rotate(180deg);
 }
 
 #terminal-area {
@@ -297,10 +451,16 @@ body[data-theme="dark"] .icon-moon {
 .tab-terminal-wrapper {
   width: 100%;
   height: 100%;
-  padding: 8px;
+  padding: 16px 20px;
+  box-sizing: border-box;
 }
 
-.tab-terminal-wrapper .xterm {
+.tab-terminal-inner {
+  width: 100%;
+  height: 100%;
+}
+
+.tab-terminal-inner .xterm {
   height: 100%;
 }
 
@@ -334,7 +494,7 @@ body[data-theme="dark"] .icon-moon {
   width: 64px;
   height: 64px;
   border-radius: 16px;
-  background: linear-gradient(135deg, #145456, #0D9488);
+  background: #C4795B;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -482,6 +642,45 @@ body[data-theme="dark"] .icon-moon {
 
 /* ---- Sidebar ---- */
 
+.sidebar-toggle {
+  position: absolute;
+  right: var(--sidebar-width);
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 10;
+  width: 24px;
+  height: 48px;
+  border: 1px solid var(--border);
+  border-right: none;
+  border-radius: 6px 0 0 6px;
+  background: var(--bg-secondary);
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: right 0.2s ease, background 0.15s, color 0.15s;
+}
+
+.sidebar-toggle:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+/* Arrow points right when open (click to close), flips left when collapsed (click to open) */
+.sidebar-toggle svg {
+  transition: transform 0.2s ease;
+}
+
+body.sidebar-collapsed .sidebar-toggle {
+  right: 0;
+}
+
+body.sidebar-collapsed .sidebar-toggle svg {
+  transform: rotate(180deg);
+}
+
 #sidebar {
   width: var(--sidebar-width);
   background: var(--bg-secondary);
@@ -489,6 +688,14 @@ body[data-theme="dark"] .icon-moon {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
+  transition: width 0.2s ease, opacity 0.2s ease;
+}
+
+body.sidebar-collapsed #sidebar {
+  width: 0;
+  overflow: hidden;
+  border-left: none;
+  opacity: 0;
 }
 
 .sidebar-section {
