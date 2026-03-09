@@ -1,30 +1,97 @@
+/* ---- Theme Variables ---- */
+
 :root {
-  --bg-primary: #12131e;
-  --bg-secondary: #0e0f18;
-  --bg-surface: #1a1b2e;
-  --bg-hover: #232436;
-  --bg-active: #2a2b42;
-  --border: #2d2e42;
-  --border-light: #383954;
+  /* Light theme (default) — Attune brand palette per design brief §4.1 */
+  --bg-primary: #FFFFFF;            /* White — default surface */
+  --bg-secondary: #F8F8F8;          /* Light Gray — alt backgrounds */
+  --bg-surface: #f0f7f7;            /* Tinted light surface (teal tint on Light Gray) */
+  --bg-hover: #e2efee;              /* Hover state (subtle teal wash) */
+  --bg-active: #cde4e2;             /* Active state */
+  --border: #d0dedd;                /* Neutral border */
+  --border-light: #e2efee;          /* Lighter border */
 
-  --text-primary: #e1e2e8;
-  --text-secondary: #8e8fa6;
-  --text-muted: #5c5d76;
+  --text-primary: #0F172A;          /* Ink — primary text, headings */
+  --text-secondary: #1C263D;        /* Dark Slate — secondary text, muted labels */
+  --text-muted: #6b7f9e;            /* Softened Dark Slate for muted text */
 
-  --accent: #6c8cff;
-  --accent-dim: #4a65c0;
-  --green: #7cc88d;
-  --yellow: #e5c76b;
-  --red: #e06c75;
-  --purple: #c78cfa;
+  --accent: #145456;                /* Deep Teal — primary brand accent */
+  --accent-dim: #0D9488;            /* Teal — lighter interactive accent */
+  --green: #2d6a4f;
+  --yellow: #EA580C;                /* Orange — accent color */
+  --red: #c0392b;
+  --purple: #5b4a8a;
 
-  --font-mono: 'SF Mono', 'Menlo', 'Consolas', monospace;
-  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  /* Attune brand tokens (design brief §4.1 core palette) */
+  --ink: #0F172A;
+  --dark-slate: #1C263D;
+  --deep-teal: #145456;
+  --teal: #0D9488;
+  --orange: #EA580C;
+  --warm-gold: #FF9A26;
+  --light-gray: #F8F8F8;
+
+  /* Legacy token aliases for compatibility */
+  --forest: #145456;                /* Deep Teal */
+  --forest-mid: #0D9488;            /* Teal */
+  --forest-light: #f0f7f7;
+  --forest-soft: #e2efee;
+  --onsen: #cde4e2;
+  --onsen-light: #f0f7f7;
+  --sunset: #EA580C;                /* Orange */
+  --sunlight: #FF9A26;              /* Warm Gold */
+  --sunlight-light: #fef4e6;
+
+  --font-mono: 'JetBrains Mono', 'SF Mono', 'Menlo', 'Consolas', monospace;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
 
   --sidebar-width: 280px;
   --tab-height: 44px;
   --traffic-light-width: 78px;
 }
+
+/* Dark theme — Attune brand palette (dark mode, derived from §4.1) */
+body[data-theme="dark"] {
+  --bg-primary: #0F172A;            /* Ink — darkest brand color as base */
+  --bg-secondary: #0c1220;          /* Deeper than Ink for layering */
+  --bg-surface: #1C263D;            /* Dark Slate — surface panels */
+  --bg-hover: #253350;              /* Lightened Dark Slate for hover */
+  --bg-active: #2e3d5e;             /* Active state */
+  --border: #253350;                /* Border from Dark Slate family */
+  --border-light: #2e3d5e;          /* Lighter border */
+
+  --text-primary: #F8F8F8;          /* Light Gray — primary text on dark */
+  --text-secondary: #a0b3c8;        /* Softened light for secondary text */
+  --text-muted: #5c7090;            /* Muted text */
+
+  --accent: #0D9488;                /* Teal — primary accent on dark */
+  --accent-dim: #145456;            /* Deep Teal — dimmed accent */
+  --green: #7cc88d;
+  --yellow: #FF9A26;                /* Warm Gold — warm accent on dark */
+  --red: #e06c75;
+  --purple: #b094d4;
+
+  /* Attune brand tokens (dark mode adjusted) */
+  --ink: #0F172A;
+  --dark-slate: #1C263D;
+  --deep-teal: #145456;
+  --teal: #0D9488;
+  --orange: #EA580C;
+  --warm-gold: #FF9A26;
+  --light-gray: #F8F8F8;
+
+  /* Legacy token aliases for compatibility */
+  --forest: #0D9488;                /* Teal (brightened for dark bg) */
+  --forest-mid: #145456;            /* Deep Teal */
+  --forest-light: #1C263D;          /* Dark Slate as light surface */
+  --forest-soft: #253350;
+  --onsen: #2e3d5e;
+  --onsen-light: #253350;
+  --sunset: #FF9A26;                /* Warm Gold on dark (per §4.2 pairing rule) */
+  --sunlight: #FF9A26;              /* Warm Gold */
+  --sunlight-light: #2a2518;
+}
+
+/* ---- Reset ---- */
 
 * {
   margin: 0;
@@ -46,133 +113,6 @@ body {
   display: none !important;
 }
 
-/* ---- Launcher ---- */
-
-#launcher {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 100vh;
-  background: var(--bg-secondary);
-  -webkit-app-region: drag;
-}
-
-.launcher-content {
-  -webkit-app-region: no-drag;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 32px;
-  max-width: 480px;
-  width: 100%;
-  padding: 40px;
-}
-
-.launcher-logo {
-  text-align: center;
-}
-
-.logo-mark {
-  width: 72px;
-  height: 72px;
-  border-radius: 18px;
-  background: linear-gradient(135deg, var(--accent), var(--purple));
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 32px;
-  font-weight: 700;
-  color: white;
-  margin: 0 auto 20px;
-  letter-spacing: -1px;
-}
-
-.launcher-logo h1 {
-  font-size: 24px;
-  font-weight: 600;
-  letter-spacing: -0.5px;
-  margin-bottom: 6px;
-}
-
-.launcher-subtitle {
-  color: var(--text-secondary);
-  font-size: 14px;
-}
-
-.launcher-directory {
-  width: 100%;
-}
-
-.launcher-directory label {
-  display: block;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  margin-bottom: 8px;
-}
-
-.directory-display {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 10px 12px;
-}
-
-.directory-display span {
-  flex: 1;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* Buttons */
-
-.btn-primary {
-  width: 100%;
-  padding: 12px 24px;
-  border: none;
-  border-radius: 8px;
-  background: var(--accent);
-  color: white;
-  font-size: 15px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.15s, transform 0.1s;
-}
-
-.btn-primary:hover {
-  background: var(--accent-dim);
-}
-
-.btn-primary:active {
-  transform: scale(0.98);
-}
-
-.btn-secondary {
-  padding: 6px 12px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg-hover);
-  color: var(--text-secondary);
-  font-size: 12px;
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s;
-  white-space: nowrap;
-}
-
-.btn-secondary:hover {
-  background: var(--bg-active);
-  color: var(--text-primary);
-}
-
 /* ---- Tab Bar ---- */
 
 #tab-bar {
@@ -187,6 +127,11 @@ body {
 
 .drag-region {
   flex: 0 0 8px;
+}
+
+.tab-bar-spacer {
+  flex: 1;
+  -webkit-app-region: drag;
 }
 
 #tabs {
@@ -287,6 +232,44 @@ body {
   color: var(--text-primary);
 }
 
+.tab-btn-theme {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 12px;
+  -webkit-app-region: no-drag;
+  transition: background 0.15s, color 0.15s;
+}
+
+.tab-btn-theme:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+/* Show sun icon in dark mode, moon icon in light mode */
+.icon-sun {
+  display: none;
+}
+
+.icon-moon {
+  display: block;
+}
+
+body[data-theme="dark"] .icon-sun {
+  display: block;
+}
+
+body[data-theme="dark"] .icon-moon {
+  display: none;
+}
+
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
@@ -308,11 +291,193 @@ body {
 #terminal-container {
   width: 100%;
   height: 100%;
+}
+
+/* Per-tab terminal wrapper */
+.tab-terminal-wrapper {
+  width: 100%;
+  height: 100%;
   padding: 8px;
 }
 
-#terminal-container .xterm {
+.tab-terminal-wrapper .xterm {
   height: 100%;
+}
+
+/* ---- Launcher (inside tab) ---- */
+
+.tab-launcher {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  background: var(--bg-secondary);
+  overflow-y: auto;
+}
+
+.launcher-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+  max-width: 480px;
+  width: 100%;
+  padding: 32px 24px;
+}
+
+.launcher-logo {
+  text-align: center;
+}
+
+.logo-mark {
+  width: 64px;
+  height: 64px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #145456, #0D9488);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  font-weight: 700;
+  color: white;
+  margin: 0 auto 16px;
+  letter-spacing: -1px;
+}
+
+.launcher-logo h1 {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.5px;
+  margin-bottom: 4px;
+}
+
+.launcher-subtitle {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.launcher-directory {
+  width: 100%;
+}
+
+.launcher-directory label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+}
+
+.directory-display {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.directory-display span {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Buttons */
+
+.btn-primary {
+  width: 100%;
+  padding: 12px 24px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: white;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+}
+
+.btn-primary:hover {
+  background: var(--accent-dim);
+}
+
+.btn-primary:active {
+  transform: scale(0.98);
+}
+
+.btn-secondary {
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+
+.btn-secondary:hover {
+  background: var(--bg-active);
+  color: var(--text-primary);
+}
+
+/* Resume section in launcher */
+
+.launcher-resume {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.launcher-resume-header {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.launcher-resume-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-resume {
+  flex: 1;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  text-align: center;
+}
+
+.btn-resume:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent);
+}
+
+.btn-resume-sub {
+  display: block;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+  font-weight: 400;
 }
 
 /* ---- Sidebar ---- */
@@ -335,6 +500,38 @@ body {
   border-bottom: none;
 }
 
+/* Quick Actions */
+
+.sidebar-actions {
+  padding: 12px 16px;
+}
+
+.btn-attach {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.btn-attach svg {
+  flex-shrink: 0;
+  color: var(--accent);
+}
+
+.btn-attach:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent);
+}
+
 .sidebar-section-header {
   font-size: 10px;
   font-weight: 600;
@@ -344,49 +541,13 @@ body {
   margin-bottom: 10px;
 }
 
-/* Status */
-
-.status-display {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  background: var(--bg-surface);
-  border-radius: 8px;
-}
-
-.status-indicator {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.status-launching { background: var(--yellow); animation: pulse 1.5s ease-in-out infinite; }
-.status-waiting { background: var(--green); }
-.status-working { background: var(--yellow); animation: pulse 1.5s ease-in-out infinite; }
-.status-approval { background: var(--red); animation: pulse 0.8s ease-in-out infinite; }
-.status-exited { background: var(--text-muted); }
-
-.status-text {
-  font-size: 13px;
-  color: var(--text-primary);
-}
-
-.status-elapsed {
-  font-size: 11px;
-  color: var(--text-muted);
-  margin-left: auto;
-  font-family: var(--font-mono);
-}
-
 /* Slash Commands */
 
 .command-list {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  max-height: 320px;
+  max-height: 400px;
   overflow-y: auto;
 }
 
@@ -416,68 +577,58 @@ body {
   margin-top: 2px;
 }
 
-/* Tips */
+/* Recent Sessions */
 
-.tips-container {
+.recent-sessions-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 2px;
+  max-height: 260px;
+  overflow-y: auto;
 }
 
-.tip-item {
-  font-size: 12px;
-  color: var(--text-secondary);
+.recent-session-item {
+  display: flex;
+  flex-direction: column;
   padding: 8px 10px;
-  background: var(--bg-surface);
   border-radius: 6px;
-  line-height: 1.5;
+  gap: 2px;
+  cursor: pointer;
+  transition: background 0.15s;
 }
 
-.tip-item kbd {
-  display: inline-block;
-  padding: 1px 5px;
-  border-radius: 3px;
+.recent-session-item:hover {
   background: var(--bg-hover);
-  border: 1px solid var(--border);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-primary);
 }
 
-/* Session List */
-
-.session-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.session-item {
+.recent-session-top {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
-  padding: 8px 10px;
-  border-radius: 6px;
-  font-size: 12px;
-  color: var(--text-secondary);
 }
 
-.session-item.active {
-  background: var(--bg-surface);
-  color: var(--text-primary);
-}
-
-.session-dir {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.session-time {
+.recent-session-time {
   font-family: var(--font-mono);
   font-size: 10px;
   color: var(--text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.recent-session-preview {
+  font-size: 12px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+
+.recent-sessions-empty {
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 8px 10px;
 }
 
 /* ---- App Container ---- */
@@ -486,6 +637,77 @@ body {
   height: 100vh;
   display: flex;
   flex-direction: column;
+}
+
+/* ---- Close Tab Confirmation Modal ---- */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+}
+
+.modal-card {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+  max-width: 360px;
+  width: 90%;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+.modal-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+
+.modal-message {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 20px;
+  line-height: 1.5;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.modal-btn {
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  border: 1px solid var(--border);
+}
+
+.modal-btn-cancel {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+}
+
+.modal-btn-cancel:hover {
+  background: var(--bg-hover);
+}
+
+.modal-btn-confirm {
+  background: var(--red);
+  color: white;
+  border-color: var(--red);
+}
+
+.modal-btn-confirm:hover {
+  opacity: 0.9;
 }
 
 /* Scrollbar styling */

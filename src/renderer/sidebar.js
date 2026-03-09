@@ -1,77 +1,30 @@
 const SLASH_COMMANDS = [
-  { name: '/sales-sync', desc: 'Weekly sales pipeline sync', category: 'sync' },
-  { name: '/cs-sync', desc: 'Customer success sync', category: 'sync' },
-  { name: '/partner-sync', desc: 'Partner ecosystem sync', category: 'sync' },
-  { name: '/marketing-sync', desc: 'Marketing initiatives sync', category: 'sync' },
-  { name: '/pmw', desc: 'Process meeting transcript', category: 'work' },
-  { name: '/expense-recon', desc: 'Reconcile Ramp expenses', category: 'work' },
-  { name: '/new-transcript-sort', desc: 'Sort new transcripts', category: 'work' },
-  { name: '/client-email-sync', desc: 'Sync client emails', category: 'work' },
-  { name: '/relationship-timeline', desc: 'Build client timeline', category: 'work' },
-  { name: '/brand-voice', desc: 'Draft in Attune voice', category: 'create' },
-  { name: '/brand-visual', desc: 'Create presentations/decks', category: 'create' },
-  { name: '/meeting-roi', desc: 'Evaluate meeting ROI', category: 'create' },
-  { name: '/setup-mcp', desc: 'Set up MCP servers', category: 'system' },
-  { name: '/second-brain-onboarding', desc: 'Learn the system', category: 'system' },
-  { name: '/archive-logs', desc: 'Archive daily logs', category: 'system' },
+  { name: '/sales-sync', desc: 'Weekly sales pipeline sync' },
+  { name: '/cs-sync', desc: 'Customer success sync' },
+  { name: '/partner-sync', desc: 'Partner ecosystem sync' },
+  { name: '/marketing-sync', desc: 'Marketing initiatives sync' },
+  { name: '/pmw', desc: 'Process meeting transcript' },
+  { name: '/expense-recon', desc: 'Reconcile Ramp expenses' },
+  { name: '/new-transcript-sort', desc: 'Sort new transcripts' },
+  { name: '/client-email-sync', desc: 'Sync client emails' },
+  { name: '/relationship-timeline', desc: 'Build client timeline' },
+  { name: '/brand-voice', desc: 'Draft in Attune voice' },
+  { name: '/brand-visual', desc: 'Create presentations/decks' },
+  { name: '/meeting-roi', desc: 'Evaluate meeting ROI' },
+  { name: '/setup-mcp', desc: 'Set up MCP servers' },
+  { name: '/second-brain-onboarding', desc: 'Learn the system' },
+  { name: '/archive-logs', desc: 'Archive daily logs' },
 ];
 
-const STATUS_CONFIG = {
-  launching: { label: 'Launching...', cssClass: 'status-launching' },
-  waiting: { label: 'Waiting for input', cssClass: 'status-waiting' },
-  working: { label: 'Working...', cssClass: 'status-working' },
-  thinking: { label: 'Thinking...', cssClass: 'status-working' },
-  agents: { label: 'Running agents...', cssClass: 'status-working' },
-  tools: { label: 'Using tools...', cssClass: 'status-working' },
-  approval: { label: 'Needs your approval', cssClass: 'status-approval' },
-  exited: { label: 'Session ended', cssClass: 'status-exited' },
-};
-
-const TIPS_BY_STATUS = {
-  launching: [
-    'Claude Code is starting up. This takes a few seconds.',
-  ],
-  waiting: [
-    'Type your request or click a command from the sidebar',
-    'Type <kbd>/</kbd> to see all available commands',
-    'Press <kbd>Up</kbd> to recall your last message',
-  ],
-  working: [
-    'Claude is working. You can scroll up to review progress.',
-    'Press <kbd>Esc</kbd> twice to interrupt if needed',
-  ],
-  thinking: [
-    'Claude is thinking through your request',
-    'Long pauses are normal for complex tasks',
-  ],
-  agents: [
-    'Sub-agents are running. This can take several minutes.',
-    'You can scroll up to see agent activity',
-  ],
-  tools: [
-    'Claude is reading, writing, or searching files',
-  ],
-  approval: [
-    'Claude needs your permission to proceed',
-    'Press <kbd>y</kbd> to approve or <kbd>n</kbd> to deny',
-    'Press <kbd>Esc</kbd> to cancel the operation',
-  ],
-  exited: [
-    'Type <kbd>claude</kbd> to start a new session',
-    'Or close this tab and open a new one',
-  ],
-};
-
 export class Sidebar {
-  constructor(onCommandClick) {
+  constructor(onCommandClick, onSessionClick) {
     this.onCommandClick = onCommandClick;
+    this.onSessionClick = onSessionClick;
     this.commandListEl = document.getElementById('slash-commands');
-    this.statusEl = document.getElementById('session-status');
-    this.tipsEl = document.getElementById('quick-tips');
-    this.sessionListEl = document.getElementById('session-list');
+    this.recentSessionsEl = document.getElementById('recent-sessions');
+    this.currentDirectory = null;
 
     this.renderCommands();
-    this.updateStatus('launching', 0);
   }
 
   renderCommands() {
@@ -92,51 +45,70 @@ export class Sidebar {
     }
   }
 
-  updateStatus(status, elapsedMs) {
-    const config = STATUS_CONFIG[status] || STATUS_CONFIG.working;
-    const elapsed = this.formatElapsed(elapsedMs);
+  async loadRecentSessions(directory) {
+    if (!directory) {
+      this.recentSessionsEl.innerHTML = '<div class="recent-sessions-empty">No recent sessions</div>';
+      return;
+    }
 
-    this.statusEl.innerHTML = `
-      <div class="status-indicator ${config.cssClass}"></div>
-      <span class="status-text">${config.label}</span>
-      ${elapsed ? `<span class="status-elapsed">${elapsed}</span>` : ''}
-    `;
+    this.currentDirectory = directory;
 
-    this.renderTips(status);
-  }
+    try {
+      const sessions = await window.attune.getRecentSessions(directory);
+      if (!sessions || sessions.length === 0) {
+        this.recentSessionsEl.innerHTML = '<div class="recent-sessions-empty">No recent sessions</div>';
+        return;
+      }
 
-  renderTips(status) {
-    const tips = TIPS_BY_STATUS[status] || TIPS_BY_STATUS.working;
-    this.tipsEl.innerHTML = tips
-      .map((tip) => `<div class="tip-item">${tip}</div>`)
-      .join('');
-  }
+      this.recentSessionsEl.innerHTML = '';
+      for (const session of sessions) {
+        const item = document.createElement('div');
+        item.className = 'recent-session-item';
 
-  updateSessions(sessions, activeId) {
-    this.sessionListEl.innerHTML = '';
-    for (const session of sessions) {
-      const item = document.createElement('div');
-      item.className = `session-item ${session.id === activeId ? 'active' : ''}`;
-      const dirName = session.directory.split('/').pop() || session.directory;
-      const time = new Date(session.startTime).toLocaleTimeString([], {
-        hour: '2-digit',
-        minute: '2-digit',
-      });
-      item.innerHTML = `
-        <div class="tab-status ${session.status === 'waiting' ? 'waiting' : session.status === 'exited' ? '' : 'working'}"></div>
-        <span class="session-dir" title="${session.directory}">${dirName}</span>
-        <span class="session-time">${time}</span>
-      `;
-      this.sessionListEl.appendChild(item);
+        const relTime = this.formatRelativeTime(session.timestamp);
+        const preview = session.preview || '(empty session)';
+
+        item.innerHTML = `
+          <div class="recent-session-top">
+            <span class="recent-session-time">${relTime}</span>
+          </div>
+          <span class="recent-session-preview" title="${this.escapeHtml(preview)}">${this.escapeHtml(preview)}</span>
+        `;
+
+        if (session.id && this.onSessionClick) {
+          item.addEventListener('click', () => {
+            this.onSessionClick(session.id);
+          });
+        }
+
+        this.recentSessionsEl.appendChild(item);
+      }
+    } catch (e) {
+      this.recentSessionsEl.innerHTML = '<div class="recent-sessions-empty">Could not load sessions</div>';
     }
   }
 
-  formatElapsed(ms) {
-    if (!ms || ms < 5000) return '';
-    const seconds = Math.floor(ms / 1000);
-    if (seconds < 60) return `${seconds}s`;
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = seconds % 60;
-    return `${minutes}m ${String(remainingSeconds).padStart(2, '0')}s`;
+  formatRelativeTime(isoString) {
+    const now = Date.now();
+    const then = new Date(isoString).getTime();
+    const diffMs = now - then;
+    const diffSec = Math.floor(diffMs / 1000);
+    const diffMin = Math.floor(diffSec / 60);
+    const diffHr = Math.floor(diffMin / 60);
+    const diffDay = Math.floor(diffHr / 24);
+
+    if (diffMin < 1) return 'just now';
+    if (diffMin < 60) return `${diffMin}m ago`;
+    if (diffHr < 24) return `${diffHr}h ago`;
+    if (diffDay === 1) return 'yesterday';
+    if (diffDay < 7) return `${diffDay}d ago`;
+    if (diffDay < 30) return `${Math.floor(diffDay / 7)}w ago`;
+    return `${Math.floor(diffDay / 30)}mo ago`;
+  }
+
+  escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
   }
 }

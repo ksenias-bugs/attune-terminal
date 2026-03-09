@@ -5,8 +5,15 @@ contextBridge.exposeInMainWorld('attune', {
   getUsername: () => ipcRenderer.invoke('get-username'),
   selectDirectory: () => ipcRenderer.invoke('select-directory'),
 
-  createPty: (id, directory, autoLaunch) =>
-    ipcRenderer.invoke('create-pty', { id, directory, autoLaunch }),
+  getRecentSessions: (directory) =>
+    ipcRenderer.invoke('get-recent-sessions', { directory }),
+
+  selectFile: () => ipcRenderer.invoke('select-file'),
+
+  notify: (title, body) => ipcRenderer.send('notify', { title, body }),
+
+  createPty: (id, directory, command) =>
+    ipcRenderer.invoke('create-pty', { id, directory, command }),
 
   sendInput: (id, data) => ipcRenderer.send('pty-input', { id, data }),
 

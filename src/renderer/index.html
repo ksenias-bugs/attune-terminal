@@ -8,52 +8,44 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <!-- Launch Screen -->
-  <div id="launcher">
-    <div class="launcher-content">
-      <div class="launcher-logo">
-        <div class="logo-mark">A</div>
-        <h1>Attune Terminal</h1>
-        <p class="launcher-subtitle">Claude Code for your team</p>
-      </div>
-
-      <div class="launcher-directory">
-        <label>Working Directory</label>
-        <div class="directory-display">
-          <span id="directory-path">Loading...</span>
-          <button id="btn-change-dir" class="btn-secondary">Change</button>
-        </div>
-      </div>
-
-      <button id="btn-start" class="btn-primary">Start Claude Code</button>
-    </div>
-  </div>
-
-  <!-- Main App -->
-  <div id="app-container" class="hidden">
+  <!-- Main App (always visible — launcher lives inside tabs) -->
+  <div id="app-container">
     <!-- Tab Bar -->
     <div id="tab-bar">
       <div id="tab-bar-drag" class="drag-region"></div>
       <div id="tabs"></div>
-      <button id="btn-new-tab" class="tab-btn-new" title="New tab">+</button>
+      <button id="btn-new-tab" class="tab-btn-new" title="New tab (⌘T)">+</button>
+      <div class="tab-bar-spacer"></div>
+      <button id="btn-theme-toggle" class="tab-btn-theme" title="Toggle theme">
+        <svg class="icon-sun" width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <circle cx="8" cy="8" r="3.5" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <svg class="icon-moon" width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <path d="M13.36 10.06A6 6 0 015.94 2.64 6 6 0 1013.36 10.06z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
     </div>
 
     <!-- Workspace -->
     <div id="workspace">
-      <!-- Terminal Area -->
+      <!-- Terminal Area (holds per-tab content: launchers and terminals) -->
       <div id="terminal-area">
         <div id="terminal-container"></div>
       </div>
 
       <!-- Sidebar -->
       <div id="sidebar">
-        <!-- Status Section -->
-        <div class="sidebar-section">
-          <div class="sidebar-section-header">Status</div>
-          <div id="session-status" class="status-display">
-            <div class="status-indicator status-launching"></div>
-            <span class="status-text">Launching...</span>
-          </div>
+        <!-- Quick Actions -->
+        <div class="sidebar-section sidebar-actions">
+          <button id="btn-attach-file" class="btn-attach" title="Pick a file to paste its path (⌘O)">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path d="M2 8.5V3.5C2 2.67 2.67 2 3.5 2H9.5L14 6.5V12.5C14 13.33 13.33 14 12.5 14H8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M9 2v5h5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M1.5 14L5 10.5M5 10.5V13.5M5 10.5H2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            Attach File Path
+          </button>
         </div>
 
         <!-- Slash Commands -->
@@ -62,16 +54,12 @@
           <div id="slash-commands" class="command-list"></div>
         </div>
 
-        <!-- Quick Reference -->
+        <!-- Recent Sessions -->
         <div class="sidebar-section">
-          <div class="sidebar-section-header">Quick Reference</div>
-          <div id="quick-tips" class="tips-container"></div>
-        </div>
-
-        <!-- Active Sessions -->
-        <div class="sidebar-section">
-          <div class="sidebar-section-header">Sessions</div>
-          <div id="session-list" class="session-list"></div>
+          <div class="sidebar-section-header">Recent Sessions</div>
+          <div id="recent-sessions" class="recent-sessions-list">
+            <div class="recent-sessions-empty">No recent sessions</div>
+          </div>
         </div>
       </div>
     </div>
