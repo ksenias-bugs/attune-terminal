@@ -4,7 +4,7 @@ import { FileExplorer } from './file-explorer.js';
 
 class AttuneApp {
   constructor() {
-    // Each tab: { id, state: 'launcher'|'terminal', directory, terminal, container, launcherEl }
+    // Each tab: { id, state: 'launcher'|'terminal', directory, terminal, container, launcherEl, customName }
     this.tabs = new Map();
     this.activeTabId = null;
     this.sidebar = null;
@@ -12,6 +12,7 @@ class AttuneApp {
     this.defaultDirectory = null;
     this.tabCounter = 0;
     this.isDark = false;
+    this.savedTabNames = this.loadTabNames();
   }
 
   async init() {
@@ -23,7 +24,14 @@ class AttuneApp {
     }
     // Light is default — no data-theme attribute needed
 
-    this.defaultDirectory = await window.attune.getDefaultDirectory();
+    // Check default directory status and handle first-launch / missing-directory setup
+    await this.resolveDefaultDirectory();
+
+    // Save session state on window close and periodically as safety net
+    window.addEventListener('beforeunload', () => {
+      this.saveSessionState();
+    });
+    setInterval(() => this.saveSessionState(), 5000);
 
     // Initialize sidebar
     this.sidebar = new Sidebar(
@@ -137,10 +145,47 @@ class AttuneApp {
         e.preventDefault();
         this.insertFilePath();
       }
+
+      // Cmd+= / Cmd+Shift+= : increase font size
+      if (e.metaKey && (e.key === '=' || e.key === '+')) {
+        e.preventDefault();
+        this.adjustFontSize(1);
+      }
+
+      // Cmd+- : decrease font size
+      if (e.metaKey && e.key === '-') {
+        e.preventDefault();
+        this.adjustFontSize(-1);
+      }
+
+      // Cmd+0 : reset font size to default
+      if (e.metaKey && e.key === '0' && !e.shiftKey) {
+        e.preventDefault();
+        this.setFontSize(14);
+      }
     });
 
-    // Create initial launcher tab
-    this.createLauncherTab();
+    // Restore previous session or create initial launcher tab
+    const restored = await this.restoreSessionState();
+    if (!restored) {
+      this.createLauncherTab();
+    }
+  }
+
+  // ---- Font Size ----
+
+  adjustFontSize(delta) {
+    const current = parseInt(localStorage.getItem('attune-font-size')) || 14;
+    this.setFontSize(Math.max(10, Math.min(28, current + delta)));
+  }
+
+  setFontSize(size) {
+    localStorage.setItem('attune-font-size', size);
+    for (const [, tab] of this.tabs) {
+      if (tab.state === 'terminal' && tab.terminal) {
+        tab.terminal.setFontSize(size);
+      }
+    }
   }
 
   // ---- Theme ----
@@ -165,8 +210,16 @@ class AttuneApp {
 
   // ---- Tab Management ----
 
-  createLauncherTab() {
-    const id = `tab-${++this.tabCounter}`;
+  createLauncherTab(options = {}) {
+    const id = options.id || `tab-${++this.tabCounter}`;
+
+    // Ensure tabCounter stays ahead of any restored IDs
+    const idNum = parseInt(id.replace('tab-', ''), 10);
+    if (!isNaN(idNum) && idNum >= this.tabCounter) {
+      this.tabCounter = idNum;
+    }
+
+    const directory = options.directory || this.defaultDirectory;
 
     // Create the launcher DOM inside terminal-container
     const wrapper = document.createElement('div');
@@ -175,108 +228,223 @@ class AttuneApp {
     wrapper.style.height = '100%';
     wrapper.style.display = 'none';
 
-    const launcherEl = this.buildLauncherElement(id);
+    const restoreInfo = options.wasTerminal ? { wasTerminal: true, sessionId: options.sessionId } : null;
+    const launcherEl = this.buildLauncherElement(id, directory, restoreInfo);
     wrapper.appendChild(launcherEl);
 
     document.getElementById('terminal-container').appendChild(wrapper);
 
+    const customName = options.customName || this.savedTabNames[id] || null;
+
     this.tabs.set(id, {
       id,
       state: 'launcher',
-      directory: this.defaultDirectory,
+      directory,
       terminal: null,
       container: wrapper,
       launcherEl,
+      customName,
     });
 
-    this.addTabElement(id, 'New Session');
+    this.addTabElement(id, customName || (restoreInfo ? 'Saved Session' : 'New Session'));
     this.switchToTab(id);
 
-    // Load recent sessions and file explorer for the default directory
-    this.sidebar.loadRecentSessions(this.defaultDirectory);
-    this.fileExplorer.setDirectory(this.defaultDirectory);
+    // Load recent sessions and file explorer for this directory
+    this.sidebar.loadRecentSessions(directory);
+    this.fileExplorer.setDirectory(directory);
+
+    this.saveSessionState();
   }
 
-  buildLauncherElement(tabId) {
+  buildLauncherElement(tabId, directory, restoreInfo = null) {
     const launcher = document.createElement('div');
     launcher.className = 'tab-launcher';
 
-    const dirDisplay = this.shortenPath(this.defaultDirectory);
-    const dirFull = this.defaultDirectory;
+    const dir = directory || this.defaultDirectory;
+    const dirDisplay = this.shortenPath(dir);
+    const dirFull = dir;
 
-    launcher.innerHTML = `
-      <div class="launcher-content">
-        <div class="launcher-logo">
-          <div class="logo-mark">A</div>
-          <h1>Attune Terminal</h1>
-          <p class="launcher-subtitle">Claude Code for your team</p>
-        </div>
+    if (restoreInfo && restoreInfo.wasTerminal) {
+      // Restored session — same branding, but with session context and teal resume button
+      launcher.innerHTML = `
+        <div class="launcher-content">
+          <div class="launcher-logo">
+            <div class="logo-mark">A</div>
+            <h1>Attune Terminal</h1>
+            <p class="launcher-subtitle">Claude Code for your team</p>
+          </div>
 
-        <div class="launcher-directory">
-          <label>Working Directory</label>
-          <div class="directory-display">
-            <span class="launcher-dir-path" title="${dirFull}">${dirDisplay}</span>
-            <button class="btn-secondary launcher-btn-change">Change</button>
+          <div class="restored-banner">
+            <div class="restored-icon">&#x21bb;</div>
+            <div class="restored-label">Saved Session</div>
+          </div>
+
+          <div class="restored-preview">
+            <span class="restored-preview-text">Loading session preview...</span>
+          </div>
+
+          <div class="launcher-directory">
+            <label>Working Directory</label>
+            <div class="directory-display">
+              <span class="launcher-dir-path" title="${dirFull}">${dirDisplay}</span>
+              <button class="btn-secondary launcher-btn-change">Change</button>
+            </div>
+          </div>
+
+          <button class="btn-restore launcher-btn-restore">Resume This Session</button>
+
+          <div class="restored-alt-actions">
+            <button class="btn-secondary launcher-btn-start">Start New</button>
+            <button class="btn-secondary launcher-btn-browse">Browse Sessions</button>
+          </div>
+
+          <div class="launcher-default-dir">
+            <button class="btn-change-default-dir">Change Default Directory</button>
+            <button class="btn-check-updates">Check for Updates</button>
+            <span class="update-status"></span>
           </div>
         </div>
+      `;
 
-        <button class="btn-primary launcher-btn-start">Start Claude Code</button>
+      // Show session preview using the saved session ID
+      const previewEl = launcher.querySelector('.restored-preview-text');
+      const btnRestore = launcher.querySelector('.launcher-btn-restore');
+      const savedSessionId = restoreInfo.sessionId;
 
-        <div class="launcher-resume">
-          <div class="launcher-resume-header">Resume</div>
-          <div class="launcher-resume-buttons">
-            <button class="btn-resume launcher-btn-continue">
-              Continue Last
-              <span class="btn-resume-sub">Pick up where you left off</span>
-            </button>
-            <button class="btn-resume launcher-btn-browse">
-              Browse Sessions
-              <span class="btn-resume-sub">Choose from past sessions</span>
-            </button>
+      if (savedSessionId) {
+        window.attune.getSessionPreview(dir, savedSessionId).then((preview) => {
+          if (preview) {
+            previewEl.textContent = `"${preview}"`;
+          } else {
+            previewEl.textContent = '(empty session)';
+          }
+        });
+      } else {
+        previewEl.textContent = 'Session ID not available — will continue most recent';
+      }
+
+      btnRestore.addEventListener('click', () => {
+        if (savedSessionId) {
+          this.launchTerminalInTab(tabId, `claude --resume ${savedSessionId}`);
+        } else {
+          this.launchTerminalInTab(tabId, 'claude --continue');
+        }
+      });
+
+      const btnStart = launcher.querySelector('.launcher-btn-start');
+      btnStart.addEventListener('click', () => {
+        this.launchTerminalInTab(tabId, 'claude');
+      });
+
+      const btnBrowse = launcher.querySelector('.launcher-btn-browse');
+      btnBrowse.addEventListener('click', () => {
+        this.launchTerminalInTab(tabId, 'claude --resume');
+      });
+    } else {
+      // Normal new session launcher
+      launcher.innerHTML = `
+        <div class="launcher-content">
+          <div class="launcher-logo">
+            <div class="logo-mark">A</div>
+            <h1>Attune Terminal</h1>
+            <p class="launcher-subtitle">Claude Code for your team</p>
+          </div>
+
+          <div class="launcher-directory">
+            <label>Working Directory</label>
+            <div class="directory-display">
+              <span class="launcher-dir-path" title="${dirFull}">${dirDisplay}</span>
+              <button class="btn-secondary launcher-btn-change">Change</button>
+            </div>
+          </div>
+
+          <button class="btn-primary launcher-btn-start">Start Claude Code</button>
+
+          <div class="launcher-resume">
+            <div class="launcher-resume-header">Resume</div>
+            <div class="launcher-resume-buttons">
+              <button class="btn-resume launcher-btn-continue">Continue Last</button>
+              <button class="btn-resume launcher-btn-browse">Browse Sessions</button>
+            </div>
+          </div>
+
+          <div class="launcher-default-dir">
+            <button class="btn-change-default-dir">Change Default Directory</button>
+            <button class="btn-check-updates">Check for Updates</button>
+            <span class="update-status"></span>
           </div>
         </div>
-      </div>
-    `;
+      `;
 
-    // Wire up launcher buttons
+      const btnStart = launcher.querySelector('.launcher-btn-start');
+      btnStart.addEventListener('click', () => {
+        this.launchTerminalInTab(tabId, 'claude');
+      });
+
+      const btnContinue = launcher.querySelector('.launcher-btn-continue');
+      btnContinue.addEventListener('click', () => {
+        this.launchTerminalInTab(tabId, 'claude --continue');
+      });
+
+      const btnBrowse = launcher.querySelector('.launcher-btn-browse');
+      btnBrowse.addEventListener('click', () => {
+        this.launchTerminalInTab(tabId, 'claude --resume');
+      });
+    }
+
+    // Wire up shared launcher buttons (Change directory, Change Default)
     const dirPathEl = launcher.querySelector('.launcher-dir-path');
     const btnChange = launcher.querySelector('.launcher-btn-change');
-    const btnStart = launcher.querySelector('.launcher-btn-start');
-    const btnContinue = launcher.querySelector('.launcher-btn-continue');
-    const btnBrowse = launcher.querySelector('.launcher-btn-browse');
+    const btnChangeDefault = launcher.querySelector('.btn-change-default-dir');
 
-    btnChange.addEventListener('click', async () => {
-      const dir = await window.attune.selectDirectory();
-      if (dir) {
+    if (btnChange) {
+      btnChange.addEventListener('click', async () => {
+        const dir = await window.attune.selectDirectory();
+        if (dir) {
+          const tab = this.tabs.get(tabId);
+          if (tab) tab.directory = dir;
+          dirPathEl.textContent = this.shortenPath(dir);
+          dirPathEl.title = dir;
+          this.sidebar.loadRecentSessions(dir);
+          this.fileExplorer.setDirectory(dir);
+          this.saveSessionState();
+        }
+      });
+    }
+
+    if (btnChangeDefault) {
+      btnChangeDefault.addEventListener('click', async () => {
+        await this.changeDefaultDirectory();
         const tab = this.tabs.get(tabId);
-        if (tab) tab.directory = dir;
-        dirPathEl.textContent = this.shortenPath(dir);
-        dirPathEl.title = dir;
-        this.sidebar.loadRecentSessions(dir);
-        this.fileExplorer.setDirectory(dir);
-      }
-    });
+        if (tab) {
+          tab.directory = this.defaultDirectory;
+          dirPathEl.textContent = this.shortenPath(this.defaultDirectory);
+          dirPathEl.title = this.defaultDirectory;
+          this.sidebar.loadRecentSessions(this.defaultDirectory);
+          this.fileExplorer.setDirectory(this.defaultDirectory);
+        }
+      });
+    }
 
-    btnStart.addEventListener('click', () => {
-      this.launchTerminalInTab(tabId, 'claude');
-    });
-
-    btnContinue.addEventListener('click', () => {
-      this.launchTerminalInTab(tabId, 'claude --continue');
-    });
-
-    btnBrowse.addEventListener('click', () => {
-      this.launchTerminalInTab(tabId, 'claude --resume');
-    });
+    const btnCheckUpdates = launcher.querySelector('.btn-check-updates');
+    const updateStatusEl = launcher.querySelector('.update-status');
+    if (btnCheckUpdates && updateStatusEl) {
+      btnCheckUpdates.addEventListener('click', () => {
+        this.checkForUpdates(updateStatusEl);
+      });
+    }
 
     return launcher;
   }
 
-  launchTerminalInTab(tabId, command) {
+  async launchTerminalInTab(tabId, command) {
     const tab = this.tabs.get(tabId);
     if (!tab || tab.state === 'terminal') return;
 
     const directory = tab.directory || this.defaultDirectory;
+
+    // Snapshot existing session files BEFORE launch (to detect the new one)
+    const beforeIds = await window.attune.listSessionIds(directory);
 
     // Remove launcher from wrapper
     if (tab.launcherEl && tab.launcherEl.parentNode) {
@@ -307,11 +475,28 @@ class AttuneApp {
     tab.directory = directory;
     tab.launcherEl = null;
 
-    // Update tab name to directory
-    const dirName = directory.split('/').pop() || directory;
-    this.updateTabName(tabId, dirName);
+    // Update tab name to directory basename (unless user set a custom name)
+    if (!tab.customName) {
+      const dirName = directory.split('/').pop() || directory;
+      this.updateTabName(tabId, dirName);
+    }
 
     terminal.start(command);
+
+    // Detect the new session file created by Claude Code (check after 2s delay)
+    setTimeout(async () => {
+      try {
+        const afterIds = await window.attune.listSessionIds(directory);
+        const newIds = afterIds.filter((id) => !beforeIds.includes(id));
+        if (newIds.length > 0) {
+          tab.sessionId = newIds[0];
+          this.saveSessionState();
+        }
+      } catch (e) {}
+    }, 2000);
+
+    // Persist state after launching terminal
+    this.saveSessionState();
 
     // Refresh sidebar and file explorer for this directory
     this.sidebar.loadRecentSessions(directory);
@@ -334,9 +519,14 @@ class AttuneApp {
     `;
 
     tab.addEventListener('click', (e) => {
-      if (!e.target.classList.contains('tab-close')) {
+      if (!e.target.classList.contains('tab-close') && !e.target.classList.contains('tab-rename-input')) {
         this.switchToTab(id);
       }
+    });
+
+    tab.querySelector('.tab-name').addEventListener('dblclick', (e) => {
+      e.stopPropagation();
+      this.startTabRename(id);
     });
 
     tab.querySelector('.tab-close').addEventListener('click', (e) => {
@@ -379,6 +569,9 @@ class AttuneApp {
       this.sidebar.loadRecentSessions(tab.directory);
       this.fileExplorer.setDirectory(tab.directory);
     }
+
+    // Persist active tab change
+    this.saveSessionState();
   }
 
   closeTab(id) {
@@ -457,6 +650,8 @@ class AttuneApp {
     if (tabEl) tabEl.remove();
 
     this.tabs.delete(id);
+    this.saveTabNames();
+    this.saveSessionState();
 
     // Switch to another tab or create a new launcher tab
     if (this.tabs.size > 0) {
@@ -514,6 +709,7 @@ class AttuneApp {
         terminal: null,
         container: wrapper,
         launcherEl: null,
+        customName: null,
       });
 
       this.addTabElement(id, 'Resume');
@@ -554,6 +750,165 @@ class AttuneApp {
     tab.terminal.focus();
   }
 
+  // ---- Default Directory Setup ----
+
+  async resolveDefaultDirectory() {
+    const status = await window.attune.getDefaultDirectoryStatus();
+
+    if (status.hasSaved && status.savedExists) {
+      // Saved default exists on disk — use it
+      this.defaultDirectory = status.savedPath;
+      return;
+    }
+
+    if (status.hasSaved && !status.savedExists) {
+      // Saved default no longer exists — fall back to home and prompt
+      this.defaultDirectory = await window.attune.getDefaultDirectory();
+      await this.showSetupPrompt(
+        'Your saved default directory no longer exists. Please choose a new default working directory.'
+      );
+      return;
+    }
+
+    // No saved default
+    if (status.hardcodedExists) {
+      // Hardcoded Attune path found — use it as default, save it
+      this.defaultDirectory = await window.attune.getDefaultDirectory();
+      await window.attune.setDefaultDirectory(this.defaultDirectory);
+      return;
+    }
+
+    // No saved default, no hardcoded path — first launch for non-Attune user
+    this.defaultDirectory = await window.attune.getDefaultDirectory();
+    await this.showSetupPrompt(
+      'Welcome to Attune Terminal. Choose your default working directory to get started.'
+    );
+  }
+
+  showSetupPrompt(message) {
+    return new Promise((resolve) => {
+      // Remove any existing setup modal
+      const existing = document.getElementById('setup-modal');
+      if (existing) existing.remove();
+
+      const modal = document.createElement('div');
+      modal.id = 'setup-modal';
+      modal.className = 'modal-overlay';
+      modal.innerHTML = `
+        <div class="modal-card setup-card">
+          <div class="setup-logo">
+            <div class="logo-mark">A</div>
+          </div>
+          <div class="modal-title">Set Default Directory</div>
+          <div class="modal-message">${message}</div>
+          <div class="setup-current">
+            <span class="setup-current-label">Current:</span>
+            <span class="setup-current-path">${this.shortenPath(this.defaultDirectory)}</span>
+          </div>
+          <div class="modal-actions setup-actions">
+            <button class="modal-btn modal-btn-cancel">Skip</button>
+            <button class="modal-btn setup-btn-choose">Choose Directory</button>
+          </div>
+        </div>
+      `;
+
+      document.body.appendChild(modal);
+
+      const btnSkip = modal.querySelector('.modal-btn-cancel');
+      const btnChoose = modal.querySelector('.setup-btn-choose');
+
+      const dismiss = () => {
+        modal.remove();
+        resolve();
+      };
+
+      btnSkip.addEventListener('click', dismiss);
+
+      btnChoose.addEventListener('click', async () => {
+        const dir = await window.attune.selectDirectory();
+        if (dir) {
+          await window.attune.setDefaultDirectory(dir);
+          this.defaultDirectory = dir;
+        }
+        dismiss();
+      });
+    });
+  }
+
+  async changeDefaultDirectory() {
+    const dir = await window.attune.selectDirectory();
+    if (dir) {
+      await window.attune.setDefaultDirectory(dir);
+      this.defaultDirectory = dir;
+    }
+  }
+
+  // ---- Update Check ----
+
+  async checkForUpdates(statusEl) {
+    statusEl.textContent = 'Checking...';
+    statusEl.className = 'update-status';
+
+    try {
+      const currentVersion = await window.attune.getAppVersion();
+      const response = await fetch(
+        'https://api.github.com/repos/ksenias-bugs/attune-terminal/releases/latest',
+        { headers: { 'Accept': 'application/vnd.github.v3+json' } }
+      );
+
+      if (!response.ok) {
+        statusEl.textContent = 'Could not check for updates';
+        statusEl.className = 'update-status update-error';
+        this.clearUpdateStatus(statusEl);
+        return;
+      }
+
+      const data = await response.json();
+      const latestTag = data.tag_name || '';
+      const latestVersion = latestTag.replace(/^v/, '');
+
+      if (this.isNewerVersion(latestVersion, currentVersion)) {
+        statusEl.textContent = `v${latestVersion} available`;
+        statusEl.className = 'update-status update-available';
+        statusEl.style.cursor = 'pointer';
+        statusEl.onclick = () => {
+          window.attune.openExternalUrl(data.html_url);
+        };
+      } else {
+        statusEl.textContent = 'Up to date';
+        statusEl.className = 'update-status update-ok';
+        this.clearUpdateStatus(statusEl);
+      }
+    } catch (e) {
+      statusEl.textContent = 'Could not check for updates';
+      statusEl.className = 'update-status update-error';
+      this.clearUpdateStatus(statusEl);
+    }
+  }
+
+  clearUpdateStatus(el) {
+    setTimeout(() => {
+      el.textContent = '';
+      el.className = 'update-status';
+      el.style.cursor = '';
+      el.onclick = null;
+    }, 4000);
+  }
+
+  isNewerVersion(latest, current) {
+    if (!latest || !current) return false;
+    const lParts = latest.split('.').map(Number);
+    const cParts = current.split('.').map(Number);
+    const len = Math.max(lParts.length, cParts.length);
+    for (let i = 0; i < len; i++) {
+      const l = lParts[i] || 0;
+      const c = cParts[i] || 0;
+      if (l > c) return true;
+      if (l < c) return false;
+    }
+    return false;
+  }
+
   // ---- Utilities ----
 
   shortenPath(fullPath) {
@@ -565,6 +920,160 @@ class AttuneApp {
     if (match2) return match2[1];
 
     return fullPath.replace(/^\/Users\/[^/]+/, '~');
+  }
+
+  // ---- Tab Name Persistence ----
+
+  loadTabNames() {
+    try {
+      const stored = localStorage.getItem('attune-tab-names');
+      return stored ? JSON.parse(stored) : {};
+    } catch {
+      return {};
+    }
+  }
+
+  saveTabNames() {
+    const names = {};
+    for (const [id, tab] of this.tabs) {
+      if (tab.customName) {
+        names[id] = tab.customName;
+      }
+    }
+    localStorage.setItem('attune-tab-names', JSON.stringify(names));
+  }
+
+  // ---- Session State Persistence ----
+
+  saveSessionState() {
+    const tabEls = document.querySelectorAll('#tabs .tab');
+    const tabOrder = Array.from(tabEls).map((el) => el.dataset.id);
+
+    const tabsData = [];
+    for (const tabId of tabOrder) {
+      const tab = this.tabs.get(tabId);
+      if (!tab) continue;
+      tabsData.push({
+        id: tab.id,
+        directory: tab.directory,
+        customName: tab.customName || null,
+        wasTerminal: tab.state === 'terminal',
+        sessionId: tab.sessionId || null,
+      });
+    }
+
+    const state = {
+      tabs: tabsData,
+      activeTabId: this.activeTabId,
+    };
+
+    // Save via IPC to config file on disk (localStorage is unreliable in Electron)
+    window.attune.saveSessionState(state);
+  }
+
+  async restoreSessionState() {
+    try {
+      const state = await window.attune.loadSessionState();
+      if (!state || !Array.isArray(state.tabs) || state.tabs.length === 0) return false;
+
+      // Create tabs in saved order
+      for (const saved of state.tabs) {
+        this.createLauncherTab({
+          id: saved.id,
+          directory: saved.directory || this.defaultDirectory,
+          customName: saved.customName || null,
+          wasTerminal: saved.wasTerminal || false,
+          sessionId: saved.sessionId || null,
+        });
+      }
+
+      // Restore the previously active tab
+      if (state.activeTabId && this.tabs.has(state.activeTabId)) {
+        this.switchToTab(state.activeTabId);
+      }
+
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // ---- Tab Rename (double-click) ----
+
+  startTabRename(tabId) {
+    const tabEl = document.querySelector(`.tab[data-id="${tabId}"]`);
+    if (!tabEl) return;
+
+    const nameEl = tabEl.querySelector('.tab-name');
+    if (!nameEl || nameEl.classList.contains('hidden')) return;
+
+    const currentName = nameEl.textContent;
+    nameEl.classList.add('hidden');
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'tab-rename-input';
+    input.value = currentName;
+    nameEl.parentNode.insertBefore(input, nameEl.nextSibling);
+    input.select();
+    input.focus();
+
+    const commit = () => {
+      const newName = input.value.trim();
+      if (input.parentNode) {
+        input.remove();
+      }
+      nameEl.classList.remove('hidden');
+
+      if (newName && newName !== currentName) {
+        const tab = this.tabs.get(tabId);
+        if (tab) {
+          tab.customName = newName;
+          this.saveTabNames();
+          this.saveSessionState();
+        }
+        nameEl.textContent = newName;
+      }
+    };
+
+    const cancel = () => {
+      if (input.parentNode) {
+        input.remove();
+      }
+      nameEl.classList.remove('hidden');
+    };
+
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        commit();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        cancel();
+      }
+      e.stopPropagation();
+    });
+
+    input.addEventListener('blur', () => {
+      // Small delay to allow keydown to fire first
+      setTimeout(() => {
+        if (input.parentNode) {
+          commit();
+        }
+      }, 0);
+    });
+
+    // Prevent click from propagating to tab switch
+    input.addEventListener('click', (e) => e.stopPropagation());
+    input.addEventListener('dblclick', (e) => e.stopPropagation());
+  }
+
+  getTabDisplayName(tabId) {
+    const tab = this.tabs.get(tabId);
+    if (!tab) return 'New Session';
+    if (tab.customName) return tab.customName;
+    if (tab.directory) return tab.directory.split('/').pop() || tab.directory;
+    return 'New Session';
   }
 }
 

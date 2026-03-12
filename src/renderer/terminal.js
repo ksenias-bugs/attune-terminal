@@ -72,11 +72,17 @@ export class TerminalSession {
     this.recentOutput = '';
     this.maxBuffer = 5000;
     this.statusCheckInterval = null;
+    this.lastNotifyTime = 0;
+    this.notifyCooldownMs = 10000; // 10 second cooldown between notifications
+    this._fitDebounceTimer = null;
+    this._userScrolledUp = false;
+
+    const savedFontSize = parseInt(localStorage.getItem('attune-font-size')) || 14;
 
     this.terminal = new Terminal({
       theme: getTerminalTheme(isDark),
       fontFamily: "'SF Mono', 'Menlo', 'Consolas', monospace",
-      fontSize: 14,
+      fontSize: savedFontSize,
       lineHeight: 1.0,
       scrollback: 10000,
       cursorBlink: true,
@@ -90,6 +96,42 @@ export class TerminalSession {
     this.terminal.loadAddon(new WebLinksAddon());
   }
 
+  // Check if the terminal viewport is scrolled to (or near) the bottom
+  _isAtBottom() {
+    const buf = this.terminal.buffer.active;
+    const viewportTop = buf.viewportY;
+    const totalRows = buf.baseY;
+    // Consider "at bottom" if within 2 rows of the end
+    return viewportTop >= totalRows - 2;
+  }
+
+  // Debounced fit that preserves scroll position.
+  // FitAddon.fit() calls _renderService.clear() + resize() which can
+  // jump the viewport to the top of the scrollback buffer. We save the
+  // viewport state before fit and restore it afterward.
+  _safeFit() {
+    if (this._fitDebounceTimer) {
+      clearTimeout(this._fitDebounceTimer);
+    }
+    this._fitDebounceTimer = setTimeout(() => {
+      this._fitDebounceTimer = null;
+      const wasAtBottom = this._isAtBottom();
+      const prevViewportY = this.terminal.buffer.active.viewportY;
+
+      this.fitAddon.fit();
+
+      // After fit, restore scroll position
+      if (wasAtBottom) {
+        this.terminal.scrollToBottom();
+      } else {
+        // Clamp to valid range after resize (baseY may have changed)
+        const maxY = this.terminal.buffer.active.baseY;
+        const targetY = Math.min(prevViewportY, maxY);
+        this.terminal.scrollToLine(targetY);
+      }
+    }, 50);
+  }
+
   async start(command) {
     this.terminal.open(this.container);
 
@@ -99,6 +141,11 @@ export class TerminalSession {
     } catch (e) {
       // WebGL not available, fall back to canvas (block chars may have gaps)
     }
+
+    // Track user scroll: detect when the user scrolls away from bottom
+    this.terminal.onScroll(() => {
+      this._userScrolledUp = !this._isAtBottom();
+    });
 
     // Fit after a frame to ensure container has dimensions
     requestAnimationFrame(() => {
@@ -111,6 +158,12 @@ export class TerminalSession {
     // Receive PTY output
     const cleanupData = window.attune.onPtyData(this.id, (data) => {
       this.terminal.write(data);
+      // xterm.js auto-scrolls on write only when the viewport is already at
+      // the bottom. If a fit() call displaced the viewport, force it back
+      // so the user can follow new output in real time.
+      if (!this._userScrolledUp) {
+        this.terminal.scrollToBottom();
+      }
       this.processOutput(data);
     });
     this.cleanupFns.push(cleanupData);
@@ -155,13 +208,36 @@ export class TerminalSession {
       return true;
     });
 
-    // Handle resize
+    // Handle resize — debounced to avoid rapid fit() calls that reset scroll
     const resizeObserver = new ResizeObserver(() => {
-      this.fitAddon.fit();
-      window.attune.resizePty(this.id, this.terminal.cols, this.terminal.rows);
+      if (this._fitDebounceTimer) {
+        clearTimeout(this._fitDebounceTimer);
+      }
+      this._fitDebounceTimer = setTimeout(() => {
+        this._fitDebounceTimer = null;
+        const wasAtBottom = this._isAtBottom();
+        const prevViewportY = this.terminal.buffer.active.viewportY;
+
+        this.fitAddon.fit();
+        window.attune.resizePty(this.id, this.terminal.cols, this.terminal.rows);
+
+        // Restore scroll position after fit
+        if (wasAtBottom) {
+          this.terminal.scrollToBottom();
+        } else {
+          const maxY = this.terminal.buffer.active.baseY;
+          const targetY = Math.min(prevViewportY, maxY);
+          this.terminal.scrollToLine(targetY);
+        }
+      }, 50);
     });
     resizeObserver.observe(this.container);
-    this.cleanupFns.push(() => resizeObserver.disconnect());
+    this.cleanupFns.push(() => {
+      resizeObserver.disconnect();
+      if (this._fitDebounceTimer) {
+        clearTimeout(this._fitDebounceTimer);
+      }
+    });
 
     // Periodic status check (for elapsed time updates)
     this.statusCheckInterval = setInterval(() => {
@@ -185,21 +261,23 @@ export class TerminalSession {
     let newStatus = this.status;
 
     // Detect Claude Code states from output patterns
-    // Check approval first (highest priority)
-    if (/[Aa]llow|[Aa]pprove|[Yy]\/[Nn]|[Pp]ermission|Yes\/No/.test(lastChunk.slice(-300))) {
+    // Check approval first (highest priority) — look for the actual permission prompt
+    // patterns that Claude Code uses, not generic words in output text
+    if (/Do you want to (allow|proceed|approve)|Allow once|Allow always|[Yy]\/[Nn]\]?\s*$/.test(lastChunk.slice(-300))) {
       newStatus = 'approval';
     }
-    // Check for Claude Code's input prompt — it shows > when waiting for user input
-    // Also check for the prompt appearing after a response ends
-    else if (/>\s*$/.test(tail) || /❯\s*$/.test(tail) || /\?\s*$/.test(tail.slice(-30))) {
+    // Check for Claude Code's input prompt — the > at end of line when waiting
+    // Must be on its own line (start of line or after newline), not part of output text
+    else if (/\n>\s*$/.test(tail) || /^>\s*$/.test(tail.trim()) || /❯\s*$/.test(tail)) {
       newStatus = 'waiting';
     }
-    // Detect active work states
-    else if (/[Tt]hinking|[Pp]lanning|ultra-thinking/i.test(lastChunk.slice(-300))) {
+    // Detect active work states — use word boundaries and specific tool patterns
+    // to avoid matching these words inside normal prose output
+    else if (/\b(Thinking|Planning|ultra-thinking)\b/.test(lastChunk.slice(-150))) {
       newStatus = 'thinking';
-    } else if (/[Aa]gent|subagent|[Ss]pawning/i.test(lastChunk.slice(-300))) {
+    } else if (/\b(Agent|subagent|Spawning)\b/.test(lastChunk.slice(-150))) {
       newStatus = 'agents';
-    } else if (/[Rr]eading|[Ww]riting|[Ee]diting|[Ss]earching|[Rr]unning/i.test(lastChunk.slice(-300))) {
+    } else if (/\b(Read|Write|Edit|Search|Glob|Grep|Bash|Run)\b/.test(lastChunk.slice(-150))) {
       newStatus = 'tools';
     } else if (this.status === 'launching') {
       newStatus = 'working';
@@ -209,11 +287,18 @@ export class TerminalSession {
       const prevStatus = this.status;
       this.setStatus(newStatus);
 
-      // Notify when Claude needs attention (only for meaningful transitions)
-      if (newStatus === 'approval') {
-        window.attune.notify('Action Required: Claude needs permission', 'A tool use is waiting for your approval.');
-      } else if (newStatus === 'waiting' && prevStatus !== 'launching' && prevStatus !== 'waiting') {
-        window.attune.notify('Claude finished the task', 'Ready for your next message.');
+      // Notify ONLY for approval and waiting-after-active-work transitions.
+      // All other status changes (thinking, tools, agents, working) are silent.
+      const isActiveState = (s) => ['thinking', 'tools', 'agents', 'working'].includes(s);
+      const now = Date.now();
+      const cooldownOk = (now - this.lastNotifyTime) >= this.notifyCooldownMs;
+
+      if (newStatus === 'approval' && cooldownOk) {
+        this.lastNotifyTime = now;
+        window.attune.notify('Action Required: Claude needs permission', 'A tool use is waiting for your approval.', 'approval');
+      } else if (newStatus === 'waiting' && isActiveState(prevStatus) && cooldownOk) {
+        this.lastNotifyTime = now;
+        window.attune.notify('Claude finished the task', 'Ready for your next message.', 'waiting');
       }
     }
   }
@@ -228,6 +313,11 @@ export class TerminalSession {
 
   setTheme(isDark) {
     this.terminal.options.theme = getTerminalTheme(isDark);
+  }
+
+  setFontSize(size) {
+    this.terminal.options.fontSize = size;
+    this._safeFit();
   }
 
   stripAnsi(str) {
@@ -249,10 +339,14 @@ export class TerminalSession {
 
   focus() {
     this.terminal.focus();
-    requestAnimationFrame(() => this.fitAddon.fit());
+    requestAnimationFrame(() => this._safeFit());
   }
 
   destroy() {
+    if (this._fitDebounceTimer) {
+      clearTimeout(this._fitDebounceTimer);
+      this._fitDebounceTimer = null;
+    }
     for (const fn of this.cleanupFns) fn();
     this.cleanupFns = [];
     window.attune.destroyPty(this.id);

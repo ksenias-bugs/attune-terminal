@@ -1,13 +1,35 @@
-const { app, BrowserWindow, ipcMain, dialog, Notification } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const pty = require('node-pty');
+const notifier = require('node-notifier');
 
 const sessions = new Map();
 let mainWindow;
 
-function getDefaultDirectory() {
+// ---- Config persistence ----
+
+function getConfigPath() {
+  return path.join(app.getPath('userData'), 'attune-config.json');
+}
+
+function readConfig() {
+  try {
+    const data = fs.readFileSync(getConfigPath(), 'utf8');
+    return JSON.parse(data);
+  } catch (e) {
+    return {};
+  }
+}
+
+function writeConfig(config) {
+  fs.writeFileSync(getConfigPath(), JSON.stringify(config, null, 2), 'utf8');
+}
+
+// ---- Default directory resolution ----
+
+function getHardcodedAttunePath() {
   const basePath = path.join(os.homedir(), 'Library', 'CloudStorage');
   try {
     const entries = fs.readdirSync(basePath);
@@ -21,6 +43,28 @@ function getDefaultDirectory() {
       }
     }
   } catch (e) {}
+  return null;
+}
+
+function getDefaultDirectory() {
+  const config = readConfig();
+
+  // 1. Check saved default from config
+  if (config.defaultDirectory) {
+    if (fs.existsSync(config.defaultDirectory)) {
+      return config.defaultDirectory;
+    }
+    // Saved path no longer exists — fall back to home and signal re-prompt
+    return os.homedir();
+  }
+
+  // 2. No saved default — try hardcoded Attune path
+  const attunePath = getHardcodedAttunePath();
+  if (attunePath) {
+    return attunePath;
+  }
+
+  // 3. Nothing found — return home directory
   return os.homedir();
 }
 
@@ -68,11 +112,117 @@ function createWindow() {
       mainWindow.webContents.toggleDevTools();
     }
   });
+
+  // Confirm before closing if there are active terminal sessions
+  mainWindow.on('close', (event) => {
+    if (sessions.size === 0) return;
+
+    const choice = dialog.showMessageBoxSync(mainWindow, {
+      type: 'question',
+      buttons: ['Close', 'Cancel'],
+      defaultId: 1,
+      cancelId: 1,
+      title: 'Close all sessions?',
+      message: 'Close all sessions?',
+      detail: 'All running sessions will be ended. Your tabs will be restored on next launch.',
+    });
+
+    if (choice === 1) {
+      event.preventDefault();
+    }
+  });
 }
 
 // IPC: Get defaults
 ipcMain.handle('get-default-directory', () => getDefaultDirectory());
 ipcMain.handle('get-username', () => getUsername());
+
+// IPC: Get app version (from package.json)
+ipcMain.handle('get-app-version', () => app.getVersion());
+
+// IPC: Open URL in default browser
+ipcMain.handle('open-external-url', (event, url) => {
+  return shell.openExternal(url);
+});
+
+// IPC: Check if a saved default directory exists in config (for first-launch detection)
+ipcMain.handle('get-default-directory-status', () => {
+  const config = readConfig();
+  if (!config.defaultDirectory) {
+    // No saved default — check if hardcoded Attune path exists
+    const attunePath = getHardcodedAttunePath();
+    return { hasSaved: false, hardcodedExists: !!attunePath };
+  }
+  const exists = fs.existsSync(config.defaultDirectory);
+  return { hasSaved: true, savedExists: exists, savedPath: config.defaultDirectory };
+});
+
+// IPC: Save default directory to config
+ipcMain.handle('set-default-directory', (event, dirPath) => {
+  const config = readConfig();
+  config.defaultDirectory = dirPath;
+  writeConfig(config);
+  return true;
+});
+
+// IPC: Save/load session state to config file (localStorage is unreliable in Electron)
+ipcMain.handle('save-session-state', (event, state) => {
+  const config = readConfig();
+  config.sessionState = state;
+  writeConfig(config);
+  return true;
+});
+
+ipcMain.handle('load-session-state', () => {
+  const config = readConfig();
+  return config.sessionState || null;
+});
+
+// IPC: List all session file IDs for a directory
+ipcMain.handle('list-session-ids', async (event, { directory }) => {
+  const projectDirName = getProjectDirName(directory);
+  const projectDir = path.join(os.homedir(), '.claude', 'projects', projectDirName);
+  try {
+    if (!fs.existsSync(projectDir)) return [];
+    return fs.readdirSync(projectDir)
+      .filter((f) => f.endsWith('.jsonl'))
+      .map((f) => f.replace('.jsonl', ''));
+  } catch (e) {
+    return [];
+  }
+});
+
+// IPC: Get session preview (first user message) for a specific session ID
+ipcMain.handle('get-session-preview', async (event, { directory, sessionId }) => {
+  const projectDirName = getProjectDirName(directory);
+  const projectDir = path.join(os.homedir(), '.claude', 'projects', projectDirName);
+  const filePath = path.join(projectDir, sessionId + '.jsonl');
+  try {
+    if (!fs.existsSync(filePath)) return null;
+    const content = fs.readFileSync(filePath, 'utf8');
+    const lines = content.split('\n').filter(Boolean);
+    for (const line of lines.slice(0, 50)) {
+      try {
+        const obj = JSON.parse(line);
+        if (obj.type !== 'user') continue;
+        if (obj.isMeta) continue;
+        const msg = obj.message;
+        if (!msg) continue;
+        let text = '';
+        if (typeof msg.content === 'string') text = msg.content;
+        else if (Array.isArray(msg.content)) {
+          const textBlock = msg.content.find((b) => b.type === 'text');
+          if (textBlock) text = textBlock.text;
+        }
+        if (!text || /^<(command-name|local-command|tool_result)/.test(text.trim())) continue;
+        return text.slice(0, 150);
+      } catch (e) {}
+    }
+    return null;
+  } catch (e) {
+    return null;
+  }
+});
 
 // IPC: Directory picker
 ipcMain.handle('select-directory', async () => {
@@ -149,21 +299,31 @@ ipcMain.handle('get-recent-sessions', async (event, { directory }) => {
 });
 
 // IPC: Send native macOS notification (only when window is not focused)
-ipcMain.on('notify', (event, { title, body }) => {
+// type: 'approval' (needs attention — dock bounce) or 'waiting' (informational — no bounce)
+ipcMain.on('notify', (event, { title, body, type }) => {
   if (mainWindow && mainWindow.isFocused()) return;
 
-  const notification = new Notification({ title, body, silent: false });
-  notification.on('click', () => {
+  notifier.notify(
+    {
+      title,
+      message: body,
+      sound: type === 'approval' ? 'default' : false,
+      wait: true,
+    },
+    () => {} // no-op callback to suppress errors
+  );
+
+  notifier.on('click', () => {
     if (mainWindow) {
       mainWindow.show();
       mainWindow.focus();
     }
   });
-  notification.show();
 
-  // Bounce dock icon for attention
-  if (app.dock) {
-    app.dock.bounce('informational');
+  // Bounce dock icon ONLY for approval — needs immediate attention
+  // 'waiting' (task finished) is informational, no bounce
+  if (app.dock && type === 'approval') {
+    app.dock.bounce('critical');
   }
 });
 
