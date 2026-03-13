@@ -1,6 +1,6 @@
 {
   "name": "attune-terminal",
-  "version": "0.1.0",
+  "version": "0.5.0",
   "description": "Lightweight macOS terminal wrapper for running Claude Code",
   "main": "src/main.js",
   "scripts": {
