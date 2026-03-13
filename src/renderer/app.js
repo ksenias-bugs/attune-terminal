@@ -1393,20 +1393,17 @@ class AttuneApp {
 
     try {
       const currentVersion = await window.attune.getAppVersion();
-      const response = await fetch(
-        'https://api.github.com/repos/ksenias-bugs/attune-terminal/releases/latest',
-        { headers: { 'Accept': 'application/vnd.github.v3+json' } }
-      );
+      // Use IPC handler (main process calls `gh api` with auth — works for private repos)
+      const result = await window.attune.checkForUpdates();
 
-      if (!response.ok) {
+      if (!result.ok) {
         statusEl.textContent = 'Could not check for updates';
         statusEl.className = 'update-status update-error';
         this.clearUpdateStatus(statusEl);
         return;
       }
 
-      const data = await response.json();
-      const latestTag = data.tag_name || '';
+      const latestTag = result.tagName || '';
       const latestVersion = latestTag.replace(/^v/, '');
 
       if (this.isNewerVersion(latestVersion, currentVersion)) {
@@ -1414,7 +1411,7 @@ class AttuneApp {
         statusEl.className = 'update-status update-available';
         statusEl.style.cursor = 'pointer';
         statusEl.onclick = () => {
-          window.attune.openExternalUrl(data.html_url);
+          window.attune.openExternalUrl(result.htmlUrl);
         };
       } else {
         statusEl.textContent = 'Up to date';
