@@ -4,7 +4,8 @@ import { FileExplorer } from './file-explorer.js';
 
 class AttuneApp {
   constructor() {
-    // Each tab: { id, state: 'launcher'|'terminal', directory, terminal, container, launcherEl, customName }
+    // Each tab: { id, state: 'launcher'|'terminal', directory, terminal, container, launcherEl, customName,
+    //   isSplit, splitTerminal, splitPtyId, activePane: 'left'|'right' }
     this.tabs = new Map();
     this.activeTabId = null;
     this.sidebar = null;
@@ -13,6 +14,7 @@ class AttuneApp {
     this.tabCounter = 0;
     this.isDark = false;
     this.savedTabNames = this.loadTabNames();
+    this._saveStateTimer = null;
   }
 
   async init() {
@@ -27,9 +29,9 @@ class AttuneApp {
     // Check default directory status and handle first-launch / missing-directory setup
     await this.resolveDefaultDirectory();
 
-    // Save session state on window close and periodically as safety net
+    // Save session state on window close (flush immediately) and periodically as safety net
     window.addEventListener('beforeunload', () => {
-      this.saveSessionState();
+      this._flushSessionState();
     });
     setInterval(() => this.saveSessionState(), 5000);
 
@@ -37,9 +39,12 @@ class AttuneApp {
     this.sidebar = new Sidebar(
       (command) => {
         const tab = this.tabs.get(this.activeTabId);
-        if (tab && tab.state === 'terminal' && tab.terminal) {
-          tab.terminal.sendCommand(command);
-          tab.terminal.focus();
+        if (tab && tab.state === 'terminal') {
+          const term = this.getActiveTerminal(tab);
+          if (term) {
+            term.sendCommand(command);
+            term.focus();
+          }
         }
       },
       (sessionId) => {
@@ -50,9 +55,13 @@ class AttuneApp {
     // File explorer
     this.fileExplorer = new FileExplorer((filePath) => {
       const tab = this.tabs.get(this.activeTabId);
-      if (tab && tab.state === 'terminal' && tab.terminal) {
-        window.attune.sendInput(tab.id, filePath);
-        tab.terminal.focus();
+      if (tab && tab.state === 'terminal') {
+        const term = this.getActiveTerminal(tab);
+        const ptyId = this.getActivePtyId(tab);
+        if (term && ptyId) {
+          window.attune.sendInput(ptyId, filePath);
+          term.focus();
+        }
       }
     });
 
@@ -68,11 +77,11 @@ class AttuneApp {
       setTimeout(() => {
         const tab = this.tabs.get(this.activeTabId);
         if (tab && tab.terminal) tab.terminal.focus();
+        if (tab && tab.splitTerminal) tab.splitTerminal.focus();
       }, 250);
     };
 
     document.getElementById('btn-file-explorer-toggle').addEventListener('click', toggleFileExplorer);
-    document.getElementById('btn-file-explorer-close').addEventListener('click', toggleFileExplorer);
 
     // Sidebar toggle
     const sidebarCollapsed = localStorage.getItem('attune-sidebar-collapsed') === 'true';
@@ -86,6 +95,7 @@ class AttuneApp {
       setTimeout(() => {
         const tab = this.tabs.get(this.activeTabId);
         if (tab && tab.terminal) tab.terminal.focus();
+        if (tab && tab.splitTerminal) tab.splitTerminal.focus();
       }, 250);
     });
 
@@ -102,6 +112,21 @@ class AttuneApp {
     // Attach file button
     document.getElementById('btn-attach-file').addEventListener('click', () => {
       this.insertFilePath();
+    });
+
+    // Split pane button (sidebar)
+    document.getElementById('btn-split-pane').addEventListener('click', () => {
+      this.splitCurrentTab();
+    });
+
+    // Search all sessions button (sidebar)
+    document.getElementById('btn-search-sessions').addEventListener('click', () => {
+      this.showSessionSearch();
+    });
+
+    // Project instructions button (sidebar)
+    document.getElementById('btn-project-instructions').addEventListener('click', () => {
+      this.showProjectInstructions();
     });
 
     // Keyboard shortcuts
@@ -140,8 +165,15 @@ class AttuneApp {
         this.switchToAdjacentTab(1);
       }
 
+      // Cmd+Shift+O : open directory switcher modal
+      if (e.metaKey && e.shiftKey && e.key === 'o') {
+        e.preventDefault();
+        this.showDirectorySwitcher();
+        return; // Don't fall through to Cmd+O
+      }
+
       // Cmd+O : pick a file and insert path into terminal
-      if (e.metaKey && e.key === 'o') {
+      if (e.metaKey && !e.shiftKey && e.key === 'o') {
         e.preventDefault();
         this.insertFilePath();
       }
@@ -163,12 +195,44 @@ class AttuneApp {
         e.preventDefault();
         this.setFontSize(14);
       }
+
+      // Cmd+F : open search bar in active terminal
+      if (e.metaKey && e.key === 'f' && !e.shiftKey) {
+        e.preventDefault();
+        this.showSearchBar();
+      }
+
+      // Cmd+D : split current tab
+      if (e.metaKey && !e.shiftKey && e.key === 'd') {
+        e.preventDefault();
+        this.splitCurrentTab();
+      }
+
+      // Cmd+Shift+D : unsplit current tab
+      if (e.metaKey && e.shiftKey && e.key === 'd') {
+        e.preventDefault();
+        if (this.activeTabId) {
+          this.unsplitTab(this.activeTabId);
+        }
+      }
+
     });
 
     // Restore previous session or create initial launcher tab
     const restored = await this.restoreSessionState();
     if (!restored) {
       this.createLauncherTab();
+    }
+
+    // Show walkthrough on first launch or after version change
+    try {
+      const currentVersion = await window.attune.getAppVersion();
+      const lastSeen = await window.attune.getLastSeenVersion();
+      if (lastSeen !== currentVersion) {
+        this.showWalkthrough(currentVersion);
+      }
+    } catch (e) {
+      console.warn('Walkthrough check failed:', e);
     }
   }
 
@@ -184,6 +248,9 @@ class AttuneApp {
     for (const [, tab] of this.tabs) {
       if (tab.state === 'terminal' && tab.terminal) {
         tab.terminal.setFontSize(size);
+      }
+      if (tab.splitTerminal) {
+        tab.splitTerminal.setFontSize(size);
       }
     }
   }
@@ -204,6 +271,9 @@ class AttuneApp {
     for (const [, tab] of this.tabs) {
       if (tab.state === 'terminal' && tab.terminal) {
         tab.terminal.setTheme(this.isDark);
+      }
+      if (tab.splitTerminal) {
+        tab.splitTerminal.setTheme(this.isDark);
       }
     }
   }
@@ -244,6 +314,7 @@ class AttuneApp {
       container: wrapper,
       launcherEl,
       customName,
+      cleanupFns: [],
     });
 
     this.addTabElement(id, customName || (restoreInfo ? 'Saved Session' : 'New Session'));
@@ -295,11 +366,11 @@ class AttuneApp {
 
           <div class="restored-alt-actions">
             <button class="btn-secondary launcher-btn-start">Start New</button>
-            <button class="btn-secondary launcher-btn-browse">Browse Sessions</button>
+            <button class="btn-secondary btn-change-default-dir">Change Default Directory</button>
           </div>
 
           <div class="launcher-default-dir">
-            <button class="btn-change-default-dir">Change Default Directory</button>
+            <button class="btn-whats-new">All Features</button>
             <button class="btn-check-updates">Check for Updates</button>
             <span class="update-status"></span>
           </div>
@@ -336,10 +407,6 @@ class AttuneApp {
         this.launchTerminalInTab(tabId, 'claude');
       });
 
-      const btnBrowse = launcher.querySelector('.launcher-btn-browse');
-      btnBrowse.addEventListener('click', () => {
-        this.launchTerminalInTab(tabId, 'claude --resume');
-      });
     } else {
       // Normal new session launcher
       launcher.innerHTML = `
@@ -364,12 +431,12 @@ class AttuneApp {
             <div class="launcher-resume-header">Resume</div>
             <div class="launcher-resume-buttons">
               <button class="btn-resume launcher-btn-continue">Continue Last</button>
-              <button class="btn-resume launcher-btn-browse">Browse Sessions</button>
+              <button class="btn-resume btn-change-default-dir">Change Default Directory</button>
             </div>
           </div>
 
           <div class="launcher-default-dir">
-            <button class="btn-change-default-dir">Change Default Directory</button>
+            <button class="btn-whats-new">All Features</button>
             <button class="btn-check-updates">Check for Updates</button>
             <span class="update-status"></span>
           </div>
@@ -386,10 +453,6 @@ class AttuneApp {
         this.launchTerminalInTab(tabId, 'claude --continue');
       });
 
-      const btnBrowse = launcher.querySelector('.launcher-btn-browse');
-      btnBrowse.addEventListener('click', () => {
-        this.launchTerminalInTab(tabId, 'claude --resume');
-      });
     }
 
     // Wire up shared launcher buttons (Change directory, Change Default)
@@ -434,6 +497,14 @@ class AttuneApp {
       });
     }
 
+    const btnWhatsNew = launcher.querySelector('.btn-whats-new');
+    if (btnWhatsNew) {
+      btnWhatsNew.addEventListener('click', async () => {
+        const currentVersion = await window.attune.getAppVersion();
+        this.showWalkthrough(currentVersion);
+      });
+    }
+
     return launcher;
   }
 
@@ -460,6 +531,12 @@ class AttuneApp {
     termInner.className = 'tab-terminal-inner';
     termOuter.appendChild(termInner);
 
+    const tokenBar = document.createElement('div');
+    tokenBar.className = 'token-bar';
+    tokenBar.id = `token-bar-${tabId}`;
+    tokenBar.innerHTML = '<span class="token-count"></span><span class="token-cost"></span>';
+    termOuter.appendChild(tokenBar);
+
     const terminal = new TerminalSession(
       tabId,
       directory,
@@ -469,6 +546,57 @@ class AttuneApp {
       },
       this.isDark
     );
+
+    // Drag-and-drop file support
+    termOuter.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!tab.isSplit) {
+        termOuter.classList.add('drop-active');
+      }
+    });
+
+    termOuter.addEventListener('dragleave', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      termOuter.classList.remove('drop-active');
+    });
+
+    termOuter.addEventListener('drop', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      termOuter.classList.remove('drop-active');
+
+      const files = e.dataTransfer.files;
+      if (!files || files.length === 0) return;
+
+      // In split mode, use coordinates to target the correct pane
+      let ptyId = tabId;
+      let term = terminal;
+      if (tab.isSplit) {
+        const leftPane = termOuter.querySelector('.split-pane-left');
+        if (leftPane) {
+          const leftRect = leftPane.getBoundingClientRect();
+          if (e.clientX >= leftRect.right) {
+            ptyId = tab.splitPtyId;
+            term = tab.splitTerminal;
+          }
+        }
+      }
+
+      const paths = [];
+      for (let i = 0; i < files.length; i++) {
+        const filePath = window.attune.getPathForFile(files[i]);
+        if (filePath) {
+          paths.push(filePath.includes(' ') ? `"${filePath}"` : filePath);
+        }
+      }
+
+      if (paths.length > 0 && ptyId && term) {
+        window.attune.sendInput(ptyId, paths.join(' '));
+        term.focus();
+      }
+    });
 
     tab.state = 'terminal';
     tab.terminal = terminal;
@@ -481,26 +609,101 @@ class AttuneApp {
       this.updateTabName(tabId, dirName);
     }
 
-    terminal.start(command);
+    await terminal.start(command);
 
-    // Detect the new session file created by Claude Code (check after 2s delay)
-    setTimeout(async () => {
+    // Poll token/cost data from the terminal session and update the token bar
+    const tokenInterval = setInterval(() => {
+      const bar = document.getElementById(`token-bar-${tabId}`);
+      if (bar && terminal.estimatedCost) {
+        const countEl = bar.querySelector('.token-count');
+        const costEl = bar.querySelector('.token-cost');
+        if (terminal.contextPercent) {
+          countEl.textContent = `ctx: ${terminal.contextPercent}%`;
+        }
+        if (terminal.estimatedCost) {
+          costEl.textContent = ` · ${terminal.estimatedCost}`;
+        }
+        bar.classList.add('visible');
+      }
+    }, 2000);
+    tab.cleanupFns.push(() => clearInterval(tokenInterval));
+
+    // Detect session ID with retry
+    const detectSessionId = async (attempt = 0) => {
+      if (attempt >= 5) return; // Give up after 5 attempts (10 seconds)
       try {
         const afterIds = await window.attune.listSessionIds(directory);
         const newIds = afterIds.filter((id) => !beforeIds.includes(id));
         if (newIds.length > 0) {
           tab.sessionId = newIds[0];
           this.saveSessionState();
+        } else {
+          setTimeout(() => detectSessionId(attempt + 1), 2000);
         }
-      } catch (e) {}
-    }, 2000);
+      } catch (e) {
+        console.error('Session ID detection failed:', e);
+        setTimeout(() => detectSessionId(attempt + 1), 2000);
+      }
+    };
+    setTimeout(() => detectSessionId(), 2000);
+
+    // Save this directory to recent directories list
+    window.attune.saveRecentDirectory(directory);
 
     // Persist state after launching terminal
     this.saveSessionState();
 
-    // Refresh sidebar and file explorer for this directory
+    // Refresh sidebar, file explorer, and CLAUDE.md preview for this directory
     this.sidebar.loadRecentSessions(directory);
     this.fileExplorer.setDirectory(directory);
+
+    // Show restart bar when the PTY exits
+    const cleanupMainExit = window.attune.onPtyExit(tabId, () => {
+      // Show restart option
+      const restartBar = document.createElement('div');
+      restartBar.className = 'restart-bar';
+      restartBar.innerHTML = '<span>Session ended</span><button class="restart-btn">Restart Claude</button>';
+      const termWrapper = termOuter.querySelector('.tab-terminal-wrapper') || termOuter;
+      termWrapper.appendChild(restartBar);
+
+      restartBar.querySelector('.restart-btn').addEventListener('click', () => {
+        restartBar.remove();
+        terminal.terminal.clear();
+        terminal.destroy();
+        const newTerminal = new TerminalSession(
+          tabId,
+          directory,
+          termInner,
+          (status, elapsed) => {
+            this.updateTabStatus(tabId, status);
+          },
+          this.isDark
+        );
+        tab.terminal = newTerminal;
+        newTerminal.start('claude').catch(e => console.error('Terminal start failed:', e));
+        newTerminal.focus();
+      });
+    });
+    tab.cleanupFns.push(cleanupMainExit);
+
+    // Show restart bar when Claude exits (but shell stays alive)
+    terminal.onSessionExit = () => {
+      const existingBar = termOuter.querySelector('.restart-bar');
+      if (existingBar) return; // Already showing
+
+      const restartBar = document.createElement('div');
+      restartBar.className = 'restart-bar';
+      restartBar.innerHTML = '<span>Session ended</span><button class="restart-btn">Restart Claude</button>';
+      const termWrapper = termOuter.querySelector('.tab-terminal-wrapper') || termOuter;
+      termWrapper.appendChild(restartBar);
+
+      restartBar.querySelector('.restart-btn').addEventListener('click', () => {
+        restartBar.remove();
+        terminal.status = 'launching';  // Reset so exit detection works again
+        // Send 'claude\r' to the existing shell to restart
+        window.attune.sendInput(tabId, 'claude\r');
+      });
+    };
   }
 
   addTabElement(id, label) {
@@ -560,8 +763,9 @@ class AttuneApp {
     });
 
     // Focus terminal if in terminal state
-    if (tab && tab.state === 'terminal' && tab.terminal) {
-      tab.terminal.focus();
+    if (tab && tab.state === 'terminal') {
+      const term = this.getActiveTerminal(tab);
+      if (term) term.focus();
     }
 
     // Update sidebar and file explorer for this tab's directory
@@ -578,10 +782,11 @@ class AttuneApp {
     const tab = this.tabs.get(id);
     if (!tab) return;
 
-    // Check if tab has an active terminal session
-    const isActive = tab.state === 'terminal' && tab.terminal && tab.terminal.status !== 'exited';
+    // Check if tab has an active terminal session (either pane)
+    const leftActive = tab.state === 'terminal' && tab.terminal && tab.terminal.status !== 'exited';
+    const rightActive = tab.isSplit && tab.splitTerminal && tab.splitTerminal.status !== 'exited';
 
-    if (isActive) {
+    if (leftActive || rightActive) {
       this.showCloseConfirmation(id);
     } else {
       this.destroyTab(id);
@@ -635,9 +840,22 @@ class AttuneApp {
     const tab = this.tabs.get(id);
     if (!tab) return;
 
+    // Run tab-level cleanup functions (token polling, etc.)
+    if (tab.cleanupFns) {
+      for (const fn of tab.cleanupFns) {
+        try { fn(); } catch (e) {}
+      }
+      tab.cleanupFns = [];
+    }
+
     // Destroy terminal if active (try-catch: WebGL cleanup can throw)
     if (tab.terminal) {
       try { tab.terminal.destroy(); } catch (e) {}
+    }
+
+    // Destroy split terminal if present
+    if (tab.splitTerminal) {
+      try { tab.splitTerminal.destroy(); } catch (e) {}
     }
 
     // Remove DOM
@@ -664,15 +882,45 @@ class AttuneApp {
   }
 
   updateTabStatus(id, status) {
-    const tabEl = document.querySelector(`.tab[data-id="${id}"]`);
+    // For split tabs, the id might be the splitPtyId — resolve back to the tab
+    let tabId = id;
+    let tab = this.tabs.get(id);
+    if (!tab) {
+      // Check if this id is a splitPtyId
+      for (const [tid, t] of this.tabs) {
+        if (t.splitPtyId === id) {
+          tabId = tid;
+          tab = t;
+          break;
+        }
+      }
+    }
+
+    const tabEl = document.querySelector(`.tab[data-id="${tabId}"]`);
     if (!tabEl) return;
 
-    const statusDot = tabEl.querySelector('.tab-status');
-    statusDot.className = 'tab-status';
-    if (status === 'waiting') {
-      statusDot.classList.add('waiting');
-    } else if (status !== 'exited') {
-      statusDot.classList.add('working');
+    // For split tabs, compute the combined status: most urgent wins
+    // Priority: approval > working > waiting > exited
+    if (tab && tab.isSplit) {
+      const leftStatus = tab.terminal ? tab.terminal.status : 'exited';
+      const rightStatus = tab.splitTerminal ? tab.splitTerminal.status : 'exited';
+      const statusPriority = { approval: 4, thinking: 3, tools: 3, agents: 3, working: 3, launching: 2, waiting: 1, exited: 0 };
+      const effectiveStatus = (statusPriority[leftStatus] || 0) >= (statusPriority[rightStatus] || 0) ? leftStatus : rightStatus;
+      const statusDot = tabEl.querySelector('.tab-status');
+      statusDot.className = 'tab-status';
+      if (effectiveStatus === 'waiting') {
+        statusDot.classList.add('waiting');
+      } else if (effectiveStatus !== 'exited') {
+        statusDot.classList.add('working');
+      }
+    } else {
+      const statusDot = tabEl.querySelector('.tab-status');
+      statusDot.className = 'tab-status';
+      if (status === 'waiting') {
+        statusDot.classList.add('waiting');
+      } else if (status !== 'exited') {
+        statusDot.classList.add('working');
+      }
     }
   }
 
@@ -710,6 +958,7 @@ class AttuneApp {
         container: wrapper,
         launcherEl: null,
         customName: null,
+        cleanupFns: [],
       });
 
       this.addTabElement(id, 'Resume');
@@ -736,7 +985,11 @@ class AttuneApp {
 
   async insertFilePath() {
     const tab = this.tabs.get(this.activeTabId);
-    if (!tab || tab.state !== 'terminal' || !tab.terminal) return;
+    if (!tab || tab.state !== 'terminal') return;
+
+    const term = this.getActiveTerminal(tab);
+    const ptyId = this.getActivePtyId(tab);
+    if (!term || !ptyId) return;
 
     const paths = await window.attune.selectFile();
     if (!paths || paths.length === 0) return;
@@ -746,8 +999,237 @@ class AttuneApp {
       .map((p) => (p.includes(' ') ? `"${p}"` : p))
       .join(' ');
 
-    window.attune.sendInput(tab.id, formatted);
-    tab.terminal.focus();
+    window.attune.sendInput(ptyId, formatted);
+    term.focus();
+  }
+
+  // ---- Directory Switcher ----
+
+  async showDirectorySwitcher() {
+    const existing = document.getElementById('dir-switcher-modal');
+    if (existing) existing.remove();
+    const recentDirs = await window.attune.getRecentDirectories();
+    const modal = document.createElement('div');
+    modal.id = 'dir-switcher-modal';
+    modal.className = 'modal-overlay';
+    let recentListHTML = '';
+    if (recentDirs.length > 0) {
+      const items = recentDirs.map((dir) => {
+        const display = this.shortenPath(dir);
+        const escaped = dir.replace(/"/g, '&quot;');
+        return `<div class="dir-switcher-item" data-dir="${escaped}" title="${escaped}"><span class="dir-switcher-item-icon"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2 4.5C2 3.67 2.67 3 3.5 3H6.29a1 1 0 0 1 .7.29L8 4.3h4.5c.83 0 1.5.67 1.5 1.5v6.7c0 .83-.67 1.5-1.5 1.5h-9A1.5 1.5 0 0 1 2 12.5v-8z" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="dir-switcher-item-path">${display}</span></div>`;
+      }).join('');
+      recentListHTML = `<div class="dir-switcher-recent-header">Recent Directories</div><div class="dir-switcher-recent-list">${items}</div>`;
+    } else {
+      recentListHTML = '<div class="dir-switcher-empty">No recent directories yet</div>';
+    }
+    modal.innerHTML = `<div class="modal-card dir-switcher-card"><div class="dir-switcher-header"><span class="dir-switcher-title">Open Directory</span><button class="dir-switcher-close">&times;</button></div><div class="dir-switcher-browse"><button class="dir-switcher-browse-btn"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 4.5C2 3.67 2.67 3 3.5 3H6.29a1 1 0 0 1 .7.29L8 4.3h4.5c.83 0 1.5.67 1.5 1.5v6.7c0 .83-.67 1.5-1.5 1.5h-9A1.5 1.5 0 0 1 2 12.5v-8z" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg> Browse...</button></div><div class="dir-switcher-recent">${recentListHTML}</div><div class="dir-switcher-shortcut"><kbd>Esc</kbd> to close</div></div>`;
+    document.body.appendChild(modal);
+    const keyHandler = (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); dismiss(); }
+    };
+    const dismiss = () => {
+      modal.remove();
+      document.removeEventListener('keydown', keyHandler, true);
+    };
+    const openDirectory = (dir) => {
+      dismiss();
+      // If current tab is a launcher, update its directory; otherwise open new tab
+      const currentTab = this.tabs.get(this.activeTabId);
+      if (currentTab && currentTab.state === 'launcher') {
+        currentTab.directory = dir;
+        const dirPathEl = currentTab.launcherEl?.querySelector('.launcher-dir-path');
+        if (dirPathEl) {
+          dirPathEl.textContent = this.shortenPath(dir);
+          dirPathEl.title = dir;
+        }
+        this.sidebar.loadRecentSessions(dir);
+        this.fileExplorer.setDirectory(dir);
+        this.saveSessionState();
+      } else {
+        this.createLauncherTab({ directory: dir });
+      }
+    };
+    modal.querySelector('.dir-switcher-browse-btn').addEventListener('click', async () => {
+      const dir = await window.attune.selectDirectory();
+      if (dir) openDirectory(dir);
+    });
+    modal.querySelector('.dir-switcher-close').addEventListener('click', dismiss);
+    modal.addEventListener('click', (e) => { if (e.target === modal) dismiss(); });
+    modal.querySelectorAll('.dir-switcher-item').forEach((item) => {
+      item.addEventListener('click', () => {
+        const dir = item.dataset.dir;
+        if (dir) openDirectory(dir);
+      });
+    });
+    document.addEventListener('keydown', keyHandler, true);
+    modal.querySelector('.dir-switcher-browse-btn').focus();
+  }
+
+  // ---- Session Search (cross-directory) ----
+
+  async showSessionSearch() {
+    const existing = document.getElementById('session-search-modal');
+    if (existing) existing.remove();
+
+    const modal = document.createElement('div');
+    modal.id = 'session-search-modal';
+    modal.className = 'modal-overlay';
+    modal.innerHTML = `
+      <div class="modal-card session-search-card">
+        <div class="session-search-header">
+          <span class="session-search-title">Search All Sessions</span>
+          <button class="session-search-close">&times;</button>
+        </div>
+        <div class="session-search-input-wrap">
+          <input type="text" class="session-search-input" placeholder="Search by message or directory..." spellcheck="false" autocomplete="off" />
+        </div>
+        <div class="session-search-results">
+          <div class="session-search-loading">Loading recent sessions...</div>
+        </div>
+        <div class="session-search-footer"><kbd>Esc</kbd> to close</div>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    const input = modal.querySelector('.session-search-input');
+    const resultsContainer = modal.querySelector('.session-search-results');
+
+    // Format relative time
+    const formatRelativeTime = (isoTimestamp) => {
+      const now = Date.now();
+      const then = new Date(isoTimestamp).getTime();
+      const diffMs = now - then;
+      const diffMin = Math.floor(diffMs / 60000);
+      if (diffMin < 1) return 'just now';
+      if (diffMin < 60) return `${diffMin}m ago`;
+      const diffHr = Math.floor(diffMin / 60);
+      if (diffHr < 24) return `${diffHr}h ago`;
+      const diffDay = Math.floor(diffHr / 24);
+      if (diffDay < 30) return `${diffDay}d ago`;
+      return new Date(isoTimestamp).toLocaleDateString();
+    };
+
+    // Render results
+    const renderResults = (sessions) => {
+      if (!sessions || sessions.length === 0) {
+        resultsContainer.innerHTML = '<div class="session-search-empty">No sessions found</div>';
+        return;
+      }
+
+      resultsContainer.innerHTML = sessions.map((s) => {
+        const dirBasename = s.directory.split('/').pop() || s.directory;
+        const dirDisplay = this.shortenPath(s.directory);
+        const escapedDir = s.directory.replace(/"/g, '&quot;');
+        const escapedId = s.sessionId.replace(/"/g, '&quot;');
+        const summary = s.summary.length > 100 ? s.summary.slice(0, 100) + '...' : s.summary;
+        const time = formatRelativeTime(s.timestamp);
+        return `
+          <div class="session-search-item" data-dir="${escapedDir}" data-session-id="${escapedId}">
+            <div class="session-search-item-top">
+              <span class="session-search-item-dir" title="${escapedDir}">${this.escapeHtml(dirDisplay)}</span>
+              <span class="session-search-item-time">${time}</span>
+            </div>
+            <div class="session-search-item-summary">${this.escapeHtml(summary)}</div>
+          </div>
+        `;
+      }).join('');
+
+      // Wire up click handlers
+      resultsContainer.querySelectorAll('.session-search-item').forEach((item) => {
+        item.addEventListener('click', () => {
+          const dir = item.dataset.dir;
+          const sessionId = item.dataset.sessionId;
+          dismiss();
+          this.openSessionInNewTab(dir, sessionId);
+        });
+      });
+    };
+
+    // Debounce timer
+    let debounceTimer = null;
+
+    const doSearch = async (query) => {
+      try {
+        const results = await window.attune.searchAllSessions(query);
+        renderResults(results);
+      } catch (e) {
+        resultsContainer.innerHTML = '<div class="session-search-empty">Error searching sessions</div>';
+      }
+    };
+
+    // Keyboard and dismiss handlers
+    const keyHandler = (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        dismiss();
+      }
+    };
+
+    const dismiss = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      modal.remove();
+      document.removeEventListener('keydown', keyHandler, true);
+    };
+
+    modal.querySelector('.session-search-close').addEventListener('click', dismiss);
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) dismiss();
+    });
+
+    input.addEventListener('input', () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        doSearch(input.value);
+      }, 300);
+    });
+
+    input.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+    });
+
+    document.addEventListener('keydown', keyHandler, true);
+
+    // Focus input and load initial (recent) results
+    input.focus();
+    doSearch('');
+  }
+
+  escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  openSessionInNewTab(directory, sessionId) {
+    const command = `claude --resume ${sessionId}`;
+    const id = `tab-${++this.tabCounter}`;
+
+    const wrapper = document.createElement('div');
+    wrapper.id = `tab-content-${id}`;
+    wrapper.style.width = '100%';
+    wrapper.style.height = '100%';
+    wrapper.style.display = 'none';
+
+    document.getElementById('terminal-container').appendChild(wrapper);
+
+    this.tabs.set(id, {
+      id,
+      state: 'launcher',
+      directory: directory,
+      terminal: null,
+      container: wrapper,
+      launcherEl: null,
+      customName: null,
+      cleanupFns: [],
+    });
+
+    const dirName = directory.split('/').pop() || directory;
+    this.addTabElement(id, dirName);
+    this.switchToTab(id);
+    this.launchTerminalInTab(id, command);
   }
 
   // ---- Default Directory Setup ----
@@ -845,6 +1327,66 @@ class AttuneApp {
 
   // ---- Update Check ----
 
+  showWalkthrough(version) {
+    // Remove any existing walkthrough overlay
+    const existing = document.querySelector('.walkthrough-overlay');
+    if (existing) existing.remove();
+
+    const features = [
+      { name: 'Tabs', desc: 'Run multiple sessions at once. Use the + button in the tab bar, or \u2318T.' },
+      { name: 'Split Pane', desc: 'Two terminals in one tab. Use the Split Pane button in the sidebar, or \u2318D.' },
+      { name: 'Find in Output', desc: 'Search through terminal output with \u2318F.' },
+      { name: 'Drag & Drop', desc: 'Drag a file from Finder into the terminal to paste its path.' },
+      { name: 'Open Directory', desc: 'Quickly switch your working folder with \u21e7\u2318O. Shows your recent directories.' },
+      { name: 'Attach File', desc: 'Insert a file path into your message from the sidebar button or \u2318O.' },
+      { name: 'Project Instructions', desc: 'View your CLAUDE.md file via the sidebar button \u2014 opens in a popup.' },
+      { name: 'Search All Sessions', desc: 'Find past conversations across every project from the sidebar.' },
+      { name: 'Token Tracker', desc: 'Token usage and cost appear at the bottom of the terminal as you work.' },
+      { name: 'Resume Sessions', desc: 'Pick up old conversations from the launcher \u2014 your sessions are saved.' },
+      { name: 'Light & Dark Mode', desc: 'Toggle with the sun/moon icon in the top-right corner.' },
+      { name: 'Shortcuts', desc: 'Full cheat sheet of keyboard shortcuts in the sidebar.' },
+    ];
+
+    const featuresHtml = features
+      .map(
+        (f) =>
+          `<div class="walkthrough-feature">
+            <span class="walkthrough-feature-name">${f.name}</span>
+            <span class="walkthrough-feature-desc">${f.desc}</span>
+          </div>`
+      )
+      .join('');
+
+    const overlay = document.createElement('div');
+    overlay.className = 'walkthrough-overlay';
+    overlay.innerHTML = `
+      <div class="walkthrough-card">
+        <div class="walkthrough-title">Welcome to Attune Terminal <span style="font-weight:400;color:var(--text-muted);">v${version}</span></div>
+        <div class="walkthrough-subtitle">Claude Code for your team</div>
+        <div class="walkthrough-features">${featuresHtml}</div>
+        <button class="walkthrough-btn">Got it</button>
+      </div>
+    `;
+
+    const dismiss = () => {
+      overlay.remove();
+      window.attune.setLastSeenVersion(version);
+    };
+
+    overlay.querySelector('.walkthrough-btn').addEventListener('click', dismiss);
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) dismiss();
+    });
+    document.addEventListener('keydown', function onEsc(e) {
+      if (e.key === 'Escape' && document.querySelector('.walkthrough-overlay')) {
+        dismiss();
+        document.removeEventListener('keydown', onEsc);
+      }
+    });
+
+    document.body.appendChild(overlay);
+  }
+
   async checkForUpdates(statusEl) {
     statusEl.textContent = 'Checking...';
     statusEl.className = 'update-status';
@@ -909,6 +1451,391 @@ class AttuneApp {
     return false;
   }
 
+  // ---- Terminal Search (Cmd+F) ----
+
+  showSearchBar() {
+    const tab = this.tabs.get(this.activeTabId);
+    if (!tab || tab.state !== 'terminal' || !tab.terminal) return;
+
+    // Determine which pane to attach the search bar to
+    const activeTerm = this.getActiveTerminal(tab);
+    if (!activeTerm) return;
+
+    // Find the container for this pane (split pane or terminal wrapper)
+    let paneContainer;
+    if (tab.isSplit) {
+      const pane = tab.activePane === 'right' ? 'split-pane-right' : 'split-pane-left';
+      paneContainer = tab.container.querySelector('.' + pane);
+    } else {
+      paneContainer = tab.container.querySelector('.tab-terminal-wrapper');
+    }
+    if (!paneContainer) return;
+
+    // If this pane already has a search bar, just focus it
+    const existing = paneContainer.querySelector('.terminal-search-bar');
+    if (existing) {
+      existing.querySelector('.search-input').focus();
+      existing.querySelector('.search-input').select();
+      return;
+    }
+
+    const searchBar = document.createElement('div');
+    searchBar.className = 'terminal-search-bar';
+    searchBar.innerHTML = `
+      <input type="text" class="search-input" placeholder="Search..." spellcheck="false" autocomplete="off" />
+      <button class="search-btn search-btn-prev" title="Previous match (Shift+Enter)">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 9L2 5l4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <button class="search-btn search-btn-next" title="Next match (Enter)">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <button class="search-btn search-btn-close" title="Close (Escape)">&times;</button>
+    `;
+
+    // Insert into the specific pane (positioned absolutely within it)
+    paneContainer.appendChild(searchBar);
+
+    const input = searchBar.querySelector('.search-input');
+    const btnPrev = searchBar.querySelector('.search-btn-prev');
+    const btnNext = searchBar.querySelector('.search-btn-next');
+    const btnClose = searchBar.querySelector('.search-btn-close');
+
+    const doSearch = (direction) => {
+      const query = input.value;
+      if (!query) return;
+      if (direction === 'next') {
+        activeTerm.findNext(query);
+      } else {
+        activeTerm.findPrevious(query);
+      }
+    };
+
+    const closeSearch = () => {
+      activeTerm.clearSearch();
+      activeTerm.focus();
+      searchBar.remove();
+    };
+
+    // Search on input change (incremental search)
+    input.addEventListener('input', () => {
+      doSearch('next');
+    });
+
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          doSearch('prev');
+        } else {
+          doSearch('next');
+        }
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        closeSearch();
+      }
+      // Stop propagation so terminal doesn't receive these keystrokes
+      e.stopPropagation();
+    });
+
+    btnPrev.addEventListener('click', () => doSearch('prev'));
+    btnNext.addEventListener('click', () => doSearch('next'));
+    btnClose.addEventListener('click', closeSearch);
+
+    // Focus the input
+    input.focus();
+  }
+
+  // ---- Split Pane ----
+
+  getActiveTerminal(tab) {
+    if (!tab) return null;
+    if (tab.isSplit && tab.activePane === 'right' && tab.splitTerminal) {
+      return tab.splitTerminal;
+    }
+    return tab.terminal;
+  }
+
+  getActivePtyId(tab) {
+    if (!tab) return null;
+    if (tab.isSplit && tab.activePane === 'right' && tab.splitPtyId) {
+      return tab.splitPtyId;
+    }
+    return tab.id;
+  }
+
+  setActivePane(tabId, pane) {
+    const tab = this.tabs.get(tabId);
+    if (!tab || !tab.isSplit) return;
+    tab.activePane = pane;
+
+    // Update visual indicator
+    const wrapper = tab.container.querySelector('.tab-terminal-wrapper');
+    if (!wrapper) return;
+    const leftPane = wrapper.querySelector('.split-pane-left');
+    const rightPane = wrapper.querySelector('.split-pane-right');
+    if (leftPane) leftPane.classList.toggle('active-pane', pane === 'left');
+    if (rightPane) rightPane.classList.toggle('active-pane', pane === 'right');
+  }
+
+  splitCurrentTab() {
+    const tab = this.tabs.get(this.activeTabId);
+    if (!tab || tab.state !== 'terminal' || tab.isSplit) return;
+
+    const directory = tab.directory;
+    const wrapper = tab.container.querySelector('.tab-terminal-wrapper');
+    if (!wrapper) return;
+
+    // Wrap existing terminal content in a left pane
+    const leftPane = document.createElement('div');
+    leftPane.className = 'split-pane split-pane-left active-pane';
+
+    // Move the existing tab-terminal-inner into the left pane
+    const existingInner = wrapper.querySelector('.tab-terminal-inner');
+    if (existingInner) {
+      leftPane.appendChild(existingInner);
+    }
+
+    // Create divider with drag-to-resize
+    const divider = document.createElement('div');
+    divider.className = 'split-divider';
+
+    divider.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      const startX = e.clientX;
+      const wrapperRect = wrapper.getBoundingClientRect();
+      const startLeftWidth = leftPane.getBoundingClientRect().width;
+
+      const onMouseMove = (ev) => {
+        const delta = ev.clientX - startX;
+        const newLeftWidth = startLeftWidth + delta;
+        const totalWidth = wrapperRect.width - 5; // minus divider width
+        const pct = Math.max(20, Math.min(80, (newLeftWidth / totalWidth) * 100));
+        leftPane.style.flex = 'none';
+        leftPane.style.width = pct + '%';
+        rightPane.style.flex = 'none';
+        rightPane.style.width = (100 - pct) + '%';
+      };
+
+      const onMouseUp = () => {
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        // Refit both terminals to new dimensions
+        if (tab.terminal) tab.terminal._safeFit();
+        if (tab.splitTerminal) tab.splitTerminal._safeFit();
+      };
+
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('mouseup', onMouseUp);
+    });
+
+    // Create right pane
+    const rightPane = document.createElement('div');
+    rightPane.className = 'split-pane split-pane-right';
+
+    const rightInner = document.createElement('div');
+    rightInner.className = 'tab-terminal-inner';
+    rightPane.appendChild(rightInner);
+
+    // Add close button on the right pane
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'split-pane-close';
+    closeBtn.title = 'Close split pane';
+    closeBtn.innerHTML = '&times;';
+    closeBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.unsplitTab(this.activeTabId);
+    });
+    rightPane.appendChild(closeBtn);
+
+    // Clear wrapper and rebuild with split layout
+    wrapper.innerHTML = '';
+    wrapper.classList.add('split');
+    wrapper.appendChild(leftPane);
+    wrapper.appendChild(divider);
+    wrapper.appendChild(rightPane);
+
+    // Generate a unique PTY ID for the split terminal
+    const splitPtyId = `${tab.id}-split`;
+
+    // Create new terminal session for the right pane
+    const splitTerminal = new TerminalSession(
+      splitPtyId,
+      directory,
+      rightInner,
+      (status, elapsed) => {
+        this.updateTabStatus(splitPtyId, status);
+      },
+      this.isDark
+    );
+
+    // Set split state on the tab
+    tab.isSplit = true;
+    tab.splitTerminal = splitTerminal;
+    tab.splitPtyId = splitPtyId;
+    tab.activePane = 'left';
+
+    // Focus management: clicking a pane makes it active
+    leftPane.addEventListener('mousedown', () => {
+      this.setActivePane(tab.id, 'left');
+    });
+    rightPane.addEventListener('mousedown', () => {
+      this.setActivePane(tab.id, 'right');
+    });
+
+    // Start the right pane terminal with claude
+    splitTerminal.start('claude').catch(e => console.error('Split terminal start failed:', e));
+
+    // When the split terminal exits, show a message but keep the left pane active
+    const cleanupSplitExit = window.attune.onPtyExit(splitPtyId, () => {
+      if (tab.isSplit && tab.splitTerminal) {
+        // The terminal's own exit handler already writes the exit message.
+        // Just switch focus to the left pane.
+        this.setActivePane(tab.id, 'left');
+        if (tab.terminal) tab.terminal.focus();
+      }
+    });
+    if (!tab._splitCleanupFns) tab._splitCleanupFns = [];
+    tab._splitCleanupFns.push(cleanupSplitExit);
+
+    // Refit both terminals after layout change — need delay for flex to settle
+    // Do two passes: one quick for visual, one after animation completes
+    const refitBoth = () => {
+      if (tab.terminal) {
+        tab.terminal._safeFit();
+        tab.terminal.focus();
+      }
+      if (splitTerminal) {
+        splitTerminal._safeFit();
+      }
+    };
+    setTimeout(refitBoth, 150);
+    setTimeout(refitBoth, 500);
+
+    this.saveSessionState();
+  }
+
+  unsplitTab(tabId) {
+    const tab = this.tabs.get(tabId);
+    if (!tab || !tab.isSplit) return;
+
+    // Destroy the split terminal
+    if (tab.splitTerminal) {
+      try { tab.splitTerminal.destroy(); } catch (e) {}
+    }
+
+    // Clean up split-specific listeners
+    if (tab._splitCleanupFns) {
+      for (const fn of tab._splitCleanupFns) fn();
+      tab._splitCleanupFns = [];
+    }
+
+    const wrapper = tab.container.querySelector('.tab-terminal-wrapper');
+    if (!wrapper) return;
+
+    // Get the left pane's terminal inner
+    const leftPane = wrapper.querySelector('.split-pane-left');
+    const leftInner = leftPane ? leftPane.querySelector('.tab-terminal-inner') : null;
+
+    // Rebuild wrapper as single pane
+    wrapper.innerHTML = '';
+    wrapper.classList.remove('split');
+    if (leftInner) {
+      wrapper.appendChild(leftInner);
+    }
+
+    // Clear split state
+    tab.isSplit = false;
+    tab.splitTerminal = null;
+    tab.splitPtyId = null;
+    tab.activePane = null;
+
+    // Refit and focus the remaining terminal — delay for flex to settle
+    setTimeout(() => {
+      if (tab.terminal) {
+        tab.terminal._safeFit();
+        tab.terminal.focus();
+      }
+    }, 100);
+
+    this.saveSessionState();
+  }
+
+  // ---- Project Instructions Modal ----
+
+  async showProjectInstructions() {
+    const tab = this.tabs.get(this.activeTabId);
+    const directory = tab ? tab.directory : null;
+
+    let content = null;
+    if (directory) {
+      try {
+        content = await window.attune.readClaudeMd(directory);
+      } catch (e) {
+        content = null;
+      }
+    }
+
+    const overlay = document.createElement('div');
+    overlay.className = 'instructions-overlay';
+
+    if (!content) {
+      overlay.innerHTML = `
+        <div class="instructions-card">
+          <div class="instructions-header">
+            <div>
+              <div class="instructions-title">Project Instructions</div>
+            </div>
+            <button class="instructions-close">&times;</button>
+          </div>
+          <div class="instructions-empty">No CLAUDE.md found in this directory</div>
+        </div>
+      `;
+    } else {
+      const escaped = content
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+      const shortPath = this.shortenPath(directory);
+      overlay.innerHTML = `
+        <div class="instructions-card">
+          <div class="instructions-header">
+            <div>
+              <div class="instructions-title">Project Instructions</div>
+              <div class="instructions-subtitle">${shortPath}</div>
+            </div>
+            <button class="instructions-close">&times;</button>
+          </div>
+          <div class="instructions-content">${escaped}</div>
+        </div>
+      `;
+    }
+
+    document.body.appendChild(overlay);
+
+    const close = () => {
+      overlay.remove();
+    };
+
+    overlay.querySelector('.instructions-close').addEventListener('click', close);
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) close();
+    });
+
+    const escHandler = (e) => {
+      if (e.key === 'Escape') {
+        close();
+        document.removeEventListener('keydown', escHandler);
+      }
+    };
+    document.addEventListener('keydown', escHandler);
+  }
+
   // ---- Utilities ----
 
   shortenPath(fullPath) {
@@ -946,6 +1873,20 @@ class AttuneApp {
   // ---- Session State Persistence ----
 
   saveSessionState() {
+    if (this._saveStateTimer) return; // Already scheduled
+    this._saveStateTimer = setTimeout(() => {
+      this._saveStateTimer = null;
+      this._flushSessionState();
+    }, 1000);
+  }
+
+  _flushSessionState() {
+    // Cancel any pending debounced save since we're flushing now
+    if (this._saveStateTimer) {
+      clearTimeout(this._saveStateTimer);
+      this._saveStateTimer = null;
+    }
+
     const tabEls = document.querySelectorAll('#tabs .tab');
     const tabOrder = Array.from(tabEls).map((el) => el.dataset.id);
 
@@ -1068,16 +2009,41 @@ class AttuneApp {
     input.addEventListener('dblclick', (e) => e.stopPropagation());
   }
 
-  getTabDisplayName(tabId) {
-    const tab = this.tabs.get(tabId);
-    if (!tab) return 'New Session';
-    if (tab.customName) return tab.customName;
-    if (tab.directory) return tab.directory.split('/').pop() || tab.directory;
-    return 'New Session';
-  }
 }
+
+// Prevent Electron from navigating when files are dropped outside terminal area
+document.addEventListener('dragover', (e) => {
+  e.preventDefault();
+}, true);
+document.addEventListener('drop', (e) => {
+  e.preventDefault();
+}, true);
 
 document.addEventListener('DOMContentLoaded', () => {
   const app = new AttuneApp();
   app.init();
+
+  // Collapsible sidebar sections — accordion (only one open at a time)
+  const collapsibleSections = document.querySelectorAll('.sidebar-section-header.collapsible');
+  collapsibleSections.forEach(header => {
+    header.addEventListener('click', () => {
+      const section = header.closest('.sidebar-section');
+      const isCollapsed = section.classList.contains('collapsed');
+
+      if (isCollapsed) {
+        // Collapse all other collapsible sections first
+        collapsibleSections.forEach(otherHeader => {
+          const otherSection = otherHeader.closest('.sidebar-section');
+          if (otherSection !== section) {
+            otherSection.classList.add('collapsed');
+          }
+        });
+        // Open this one
+        section.classList.remove('collapsed');
+      } else {
+        // Close this section
+        section.classList.add('collapsed');
+      }
+    });
+  });
 });

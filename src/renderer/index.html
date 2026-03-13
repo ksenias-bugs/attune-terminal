@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src https://api.github.com; img-src 'self' data:;">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Attune Terminal</title>
   <link rel="stylesheet" href="../../dist/xterm.css">
@@ -33,7 +34,6 @@
       <div id="file-explorer">
         <div class="file-explorer-header">
           <span class="file-explorer-title">Files</span>
-          <button id="btn-file-explorer-close" class="file-explorer-close" title="Close file explorer">&times;</button>
         </div>
         <div id="file-tree" class="file-tree"></div>
       </div>
@@ -65,19 +65,89 @@
             </svg>
             Attach File Path
           </button>
+          <button id="btn-project-instructions" class="btn-attach" title="View project CLAUDE.md">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path d="M3 2.5C3 1.67 3.67 1 4.5 1H9.5L13 4.5V13.5C13 14.33 12.33 15 11.5 15H4.5C3.67 15 3 14.33 3 13.5V2.5Z" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M9 1v4h4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M6 8h4M6 11h2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+            </svg>
+            Project Instructions
+          </button>
+          <button id="btn-split-pane" class="btn-attach" title="Split pane (⌘D)">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <rect x="1.5" y="2" width="5.5" height="12" rx="1.5" stroke="currentColor" stroke-width="1.4"/>
+              <rect x="9" y="2" width="5.5" height="12" rx="1.5" stroke="currentColor" stroke-width="1.4"/>
+            </svg>
+            Split Pane
+          </button>
         </div>
 
         <!-- Slash Commands -->
-        <div class="sidebar-section">
-          <div class="sidebar-section-header">Commands</div>
-          <div id="slash-commands" class="command-list"></div>
+        <div class="sidebar-section collapsed">
+          <div class="sidebar-section-header collapsible">
+            <span>Skills &amp; Commands</span>
+            <svg class="collapse-chevron" width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </div>
+          <div class="sidebar-section-content">
+            <div id="slash-commands" class="command-list"></div>
+          </div>
         </div>
 
         <!-- Recent Sessions -->
-        <div class="sidebar-section">
-          <div class="sidebar-section-header">Recent Sessions</div>
-          <div id="recent-sessions" class="recent-sessions-list">
-            <div class="recent-sessions-empty">No recent sessions</div>
+        <div class="sidebar-section collapsed">
+          <div class="sidebar-section-header collapsible">
+            <span>Recent Sessions</span>
+            <svg class="collapse-chevron" width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </div>
+          <div class="sidebar-section-content">
+            <button id="btn-search-sessions" class="sessions-search-btn" title="Search sessions across all directories">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                <circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.4"/>
+                <path d="M10.5 10.5L14 14" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+              </svg>
+              Search All Sessions
+            </button>
+            <div id="recent-sessions" class="recent-sessions-list">
+              <div class="recent-sessions-empty">No recent sessions</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Keyboard Shortcuts -->
+        <div class="sidebar-section collapsed">
+          <div class="sidebar-section-header collapsible">
+            <span>Keyboard Shortcuts</span>
+            <svg class="collapse-chevron" width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </div>
+          <div class="sidebar-section-content">
+            <div class="shortcut-list">
+            <div class="shortcut-row"><span class="shortcut-label">New Tab</span><kbd>⌘T</kbd></div>
+            <div class="shortcut-row"><span class="shortcut-label">Close Tab</span><kbd>⌘W</kbd></div>
+            <div class="shortcut-row"><span class="shortcut-label">Switch Tab</span><kbd>⌘1–9</kbd></div>
+            <div class="shortcut-row"><span class="shortcut-label">Previous Tab</span><kbd>⇧⌘[</kbd></div>
+            <div class="shortcut-row"><span class="shortcut-label">Next Tab</span><kbd>⇧⌘]</kbd></div>
+            <div class="shortcut-row"><span class="shortcut-label">Split Pane</span><kbd>⌘D</kbd></div>
+            <div class="shortcut-row"><span class="shortcut-label">Close Split</span><kbd>⇧⌘D</kbd></div>
+            <div class="shortcut-row"><span class="shortcut-label">Find</span><kbd>⌘F</kbd></div>
+            <div class="shortcut-row"><span class="shortcut-label">Next Match</span><kbd>Enter</kbd></div>
+            <div class="shortcut-row"><span class="shortcut-label">Prev Match</span><kbd>⇧Enter</kbd></div>
+            <div class="shortcut-row"><span class="shortcut-label">Close Search</span><kbd>Esc</kbd></div>
+            <div class="shortcut-row"><span class="shortcut-label">Attach File</span><kbd>⌘O</kbd></div>
+            <div class="shortcut-row"><span class="shortcut-label">Open Directory</span><kbd>⇧⌘O</kbd></div>
+            <div class="shortcut-row"><span class="shortcut-label">Font Size Up</span><kbd>⌘+</kbd></div>
+            <div class="shortcut-row"><span class="shortcut-label">Font Size Down</span><kbd>⌘−</kbd></div>
+            <div class="shortcut-row"><span class="shortcut-label">Reset Font Size</span><kbd>⌘0</kbd></div>
+            <div class="shortcut-row"><span class="shortcut-label">Beginning of Line</span><kbd>⌘←</kbd></div>
+            <div class="shortcut-row"><span class="shortcut-label">End of Line</span><kbd>⌘→</kbd></div>
+            <div class="shortcut-row"><span class="shortcut-label">Delete Line Back</span><kbd>⌘⌫</kbd></div>
+            <div class="shortcut-row"><span class="shortcut-label">Delete Line Fwd</span><kbd>⌘K</kbd></div>
+            </div>
           </div>
         </div>
       </div>

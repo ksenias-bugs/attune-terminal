@@ -2,6 +2,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
+import { SearchAddon } from '@xterm/addon-search';
 
 const LIGHT_THEME = {
   background: '#FAFAF8',            // Off-white — default surface
@@ -71,11 +72,16 @@ export class TerminalSession {
     this.cleanupFns = [];
     this.recentOutput = '';
     this.maxBuffer = 5000;
+    this.tokenCount = 0;
+    this.estimatedCost = '';
     this.statusCheckInterval = null;
     this.lastNotifyTime = 0;
     this.notifyCooldownMs = 10000; // 10 second cooldown between notifications
     this._fitDebounceTimer = null;
     this._userScrolledUp = false;
+    this.onSessionExit = null;
+    this._processThrottleTimer = null;
+    this._pendingOutput = '';
 
     const savedFontSize = parseInt(localStorage.getItem('attune-font-size')) || 14;
 
@@ -83,7 +89,7 @@ export class TerminalSession {
       theme: getTerminalTheme(isDark),
       fontFamily: "'SF Mono', 'Menlo', 'Consolas', monospace",
       fontSize: savedFontSize,
-      lineHeight: 1.0,
+      lineHeight: 1.2,
       scrollback: 10000,
       cursorBlink: true,
       cursorStyle: 'bar',
@@ -93,7 +99,12 @@ export class TerminalSession {
 
     this.fitAddon = new FitAddon();
     this.terminal.loadAddon(this.fitAddon);
-    this.terminal.loadAddon(new WebLinksAddon());
+    this.terminal.loadAddon(new WebLinksAddon((event, uri) => {
+      window.attune.openExternalUrl(uri);
+    }));
+
+    this.searchAddon = new SearchAddon();
+    this.terminal.loadAddon(this.searchAddon);
   }
 
   // Check if the terminal viewport is scrolled to (or near) the bottom
@@ -119,6 +130,8 @@ export class TerminalSession {
       const prevViewportY = this.terminal.buffer.active.viewportY;
 
       this.fitAddon.fit();
+      // Also update the PTY dimensions so the shell knows the new size
+      window.attune.resizePty(this.id, this.terminal.cols, this.terminal.rows);
 
       // After fit, restore scroll position
       if (wasAtBottom) {
@@ -164,7 +177,14 @@ export class TerminalSession {
       if (!this._userScrolledUp) {
         this.terminal.scrollToBottom();
       }
-      this.processOutput(data);
+      this._pendingOutput += data;
+      if (!this._processThrottleTimer) {
+        this._processThrottleTimer = setTimeout(() => {
+          this._processThrottleTimer = null;
+          this.processOutput(this._pendingOutput);
+          this._pendingOutput = '';
+        }, 200);
+      }
     });
     this.cleanupFns.push(cleanupData);
 
@@ -204,39 +224,25 @@ export class TerminalSession {
           window.attune.sendInput(this.id, '\x0b');
           return false;
         }
+        // Cmd+F → Let it bubble to the document handler for search bar
+        if (e.key === 'f') {
+          return false;
+        }
+        // Cmd+D / Cmd+Shift+D → Let it bubble for split pane
+        if (e.key === 'd') {
+          return false;
+        }
       }
       return true;
     });
 
-    // Handle resize — debounced to avoid rapid fit() calls that reset scroll
+    // Handle resize — delegates to _safeFit() which handles debouncing and scroll preservation
     const resizeObserver = new ResizeObserver(() => {
-      if (this._fitDebounceTimer) {
-        clearTimeout(this._fitDebounceTimer);
-      }
-      this._fitDebounceTimer = setTimeout(() => {
-        this._fitDebounceTimer = null;
-        const wasAtBottom = this._isAtBottom();
-        const prevViewportY = this.terminal.buffer.active.viewportY;
-
-        this.fitAddon.fit();
-        window.attune.resizePty(this.id, this.terminal.cols, this.terminal.rows);
-
-        // Restore scroll position after fit
-        if (wasAtBottom) {
-          this.terminal.scrollToBottom();
-        } else {
-          const maxY = this.terminal.buffer.active.baseY;
-          const targetY = Math.min(prevViewportY, maxY);
-          this.terminal.scrollToLine(targetY);
-        }
-      }, 50);
+      this._safeFit();
     });
     resizeObserver.observe(this.container);
     this.cleanupFns.push(() => {
       resizeObserver.disconnect();
-      if (this._fitDebounceTimer) {
-        clearTimeout(this._fitDebounceTimer);
-      }
     });
 
     // Periodic status check (for elapsed time updates)
@@ -283,6 +289,12 @@ export class TerminalSession {
       newStatus = 'working';
     }
 
+    // Detect Claude exit (drops back to shell prompt)
+    if (this.status !== 'exited' && /Resume this session with:/.test(lastChunk)) {
+      this.setStatus('exited');
+      if (this.onSessionExit) this.onSessionExit();
+    }
+
     if (newStatus !== this.status) {
       const prevStatus = this.status;
       this.setStatus(newStatus);
@@ -300,6 +312,17 @@ export class TerminalSession {
         this.lastNotifyTime = now;
         window.attune.notify('Claude finished the task', 'Ready for your next message.', 'waiting');
       }
+    }
+
+    // Parse cost and context info from Claude Code's status bar
+    // Format: "Opus 4.6  |  Team Resources  |  ctx: 12% used / 88% left  |  $0.16"
+    const costMatch = clean.match(/\|\s*\$(\d+\.\d+)/);
+    if (costMatch) {
+      this.estimatedCost = '$' + costMatch[1];
+    }
+    const ctxMatch = clean.match(/ctx:\s*(\d+)%\s*used/);
+    if (ctxMatch) {
+      this.contextPercent = parseInt(ctxMatch[1]);
     }
   }
 
@@ -337,6 +360,18 @@ export class TerminalSession {
     window.attune.sendInput(this.id, command + '\r');
   }
 
+  findNext(query, options) {
+    this.searchAddon.findNext(query, options);
+  }
+
+  findPrevious(query, options) {
+    this.searchAddon.findPrevious(query, options);
+  }
+
+  clearSearch() {
+    this.searchAddon.clearDecorations();
+  }
+
   focus() {
     this.terminal.focus();
     requestAnimationFrame(() => this._safeFit());
@@ -346,6 +381,10 @@ export class TerminalSession {
     if (this._fitDebounceTimer) {
       clearTimeout(this._fitDebounceTimer);
       this._fitDebounceTimer = null;
+    }
+    if (this._processThrottleTimer) {
+      clearTimeout(this._processThrottleTimer);
+      this._processThrottleTimer = null;
     }
     for (const fn of this.cleanupFns) fn();
     this.cleanupFns = [];

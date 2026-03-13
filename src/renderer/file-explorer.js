@@ -1,3 +1,7 @@
+function escapeHtml(str) {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 export class FileExplorer {
   constructor(onFileClick) {
     this.onFileClick = onFileClick;
@@ -55,7 +59,7 @@ export class FileExplorer {
       if (item.isDirectory) {
         row.innerHTML = `
           <span class="file-icon file-icon-folder">▸</span>
-          <span class="file-name folder-name">${item.name}</span>
+          <span class="file-name folder-name">${escapeHtml(item.name)}</span>
         `;
         row.addEventListener('click', () => {
           this.navigateTo(item.path);
@@ -65,7 +69,7 @@ export class FileExplorer {
         const icon = this.getFileIcon(ext);
         row.innerHTML = `
           <span class="file-icon">${icon}</span>
-          <span class="file-name">${item.name}</span>
+          <span class="file-name">${escapeHtml(item.name)}</span>
         `;
         row.addEventListener('click', () => {
           if (this.onFileClick) {
