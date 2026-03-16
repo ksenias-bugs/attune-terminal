@@ -1,8 +1,26 @@
 # Attune Terminal
 
-A native macOS desktop app for Claude Code. Built with Electron, Attune Terminal wraps Claude Code in a polished GUI with tabs, split panes, session management, notifications, and a feature-rich sidebar.
+A macOS desktop app for Claude Code. Built with Electron, Attune Terminal wraps Claude Code in a polished GUI with tabs, split panes, session management, notifications, and a feature-rich sidebar.
 
-<!-- TODO: Add screenshot -->
+![Launcher (light mode)](screenshots/launcher-light.png)
+
+![Split pane session with sidebar (dark mode)](screenshots/session-dark.png)
+
+![Feature walkthrough](screenshots/walkthrough-light.png)
+
+## Installation
+
+Download the latest `.dmg` from [Releases](https://github.com/ksenias-bugs/attune-terminal/releases).
+
+**First launch on macOS:** Since the app is not code-signed, macOS will block it. To open:
+1. Double-click the .dmg and drag Attune Terminal to Applications
+2. Open Finder, go to Applications, right-click Attune Terminal and select "Open"
+3. Click "Open" in the dialog that appears
+4. You only need to do this once — after that it opens normally
+
+**Prerequisites:** Attune Terminal runs Claude Code inside a terminal, so you need:
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed and authenticated
+- macOS (Apple Silicon)
 
 ## Features
 

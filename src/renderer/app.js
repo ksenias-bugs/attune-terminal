@@ -1265,15 +1265,7 @@ class AttuneApp {
       return;
     }
 
-    // No saved default
-    if (status.hardcodedExists) {
-      // Hardcoded Attune path found — use it as default, save it
-      this.defaultDirectory = await window.attune.getDefaultDirectory();
-      await window.attune.setDefaultDirectory(this.defaultDirectory);
-      return;
-    }
-
-    // No saved default, no hardcoded path — first launch for non-Attune user
+    // No saved default — first launch, prompt user to pick a directory
     this.defaultDirectory = await window.attune.getDefaultDirectory();
     await this.showSetupPrompt(
       'Welcome to Attune Terminal. Choose your default working directory to get started.'

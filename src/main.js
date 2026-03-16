@@ -114,57 +114,23 @@ function saveWindowBounds() {
 
 // ---- Default directory resolution ----
 
-function getHardcodedAttunePath() {
-  const basePath = path.join(os.homedir(), 'Library', 'CloudStorage');
-  try {
-    const entries = fs.readdirSync(basePath);
-    const gdriveDir = entries.find(
-      (e) => e.startsWith('GoogleDrive-') && e.includes('@attune.co')
-    );
-    if (gdriveDir) {
-      const teamResources = path.join(basePath, gdriveDir, 'Shared drives', 'Team Resources');
-      if (fs.existsSync(teamResources)) {
-        return teamResources;
-      }
-    }
-  } catch (e) { console.error('Failed to resolve Attune shared drive path:', e); }
-  return null;
-}
-
 function getDefaultDirectory() {
   const config = readConfig();
 
-  // 1. Check saved default from config
+  // Check saved default from config
   if (config.defaultDirectory) {
     if (fs.existsSync(config.defaultDirectory)) {
       return config.defaultDirectory;
     }
-    // Saved path no longer exists — fall back to home and signal re-prompt
+    // Saved path no longer exists — fall back to home
     return os.homedir();
   }
 
-  // 2. No saved default — try hardcoded Attune path
-  const attunePath = getHardcodedAttunePath();
-  if (attunePath) {
-    return attunePath;
-  }
-
-  // 3. Nothing found — return home directory
+  // No saved default — return home directory
   return os.homedir();
 }
 
 function getUsername() {
-  const basePath = path.join(os.homedir(), 'Library', 'CloudStorage');
-  try {
-    const entries = fs.readdirSync(basePath);
-    const gdriveDir = entries.find(
-      (e) => e.startsWith('GoogleDrive-') && e.includes('@attune.co')
-    );
-    if (gdriveDir) {
-      const match = gdriveDir.match(/GoogleDrive-(.+?)@attune\.co/);
-      if (match) return match[1];
-    }
-  } catch (e) { console.error('Failed to resolve username from Google Drive path:', e); }
   return os.userInfo().username;
 }
 
@@ -288,9 +254,7 @@ ipcMain.handle('check-for-updates', async () => {
 ipcMain.handle('get-default-directory-status', () => {
   const config = readConfig();
   if (!config.defaultDirectory) {
-    // No saved default — check if hardcoded Attune path exists
-    const attunePath = getHardcodedAttunePath();
-    return { hasSaved: false, hardcodedExists: !!attunePath };
+    return { hasSaved: false };
   }
   const exists = fs.existsSync(config.defaultDirectory);
   return { hasSaved: true, savedExists: exists, savedPath: config.defaultDirectory };
