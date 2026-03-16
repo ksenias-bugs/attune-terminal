@@ -12,7 +12,7 @@ A macOS desktop app for Claude Code. Built with Electron, Attune Terminal wraps 
 
 Download the latest `.dmg` from [Releases](https://github.com/ksenias-bugs/attune-terminal/releases).
 
-**First launch on macOS:** Since the app is not code-signed, macOS will block it. To open:
+**First launch on macOS:** Since this app is distributed outside the App Store, macOS may ask you to confirm. To open:
 1. Double-click the .dmg and drag Attune Terminal to Applications
 2. Open Finder, go to Applications, right-click Attune Terminal and select "Open"
 3. Click "Open" in the dialog that appears
