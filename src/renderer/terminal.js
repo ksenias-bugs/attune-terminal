@@ -78,11 +78,9 @@ export class TerminalSession {
     this.lastNotifyTime = 0;
     this.notifyCooldownMs = 10000; // 10 second cooldown between notifications
     this._fitDebounceTimer = null;
-    this._userScrolledUp = false;
     this.onSessionExit = null;
     this._processThrottleTimer = null;
     this._pendingOutput = '';
-
     const savedFontSize = parseInt(localStorage.getItem('attune-font-size')) || 14;
 
     this.terminal = new Terminal({
@@ -107,41 +105,28 @@ export class TerminalSession {
     this.terminal.loadAddon(this.searchAddon);
   }
 
-  // Check if the terminal viewport is scrolled to (or near) the bottom
-  _isAtBottom() {
-    const buf = this.terminal.buffer.active;
-    const viewportTop = buf.viewportY;
-    const totalRows = buf.baseY;
-    // Consider "at bottom" if within 2 rows of the end
-    return viewportTop >= totalRows - 2;
-  }
-
-  // Debounced fit that preserves scroll position.
+  // Debounced fit that preserves scroll position unconditionally.
   // FitAddon.fit() calls _renderService.clear() + resize() which can
-  // jump the viewport to the top of the scrollback buffer. We save the
-  // viewport state before fit and restore it afterward.
+  // jump the viewport. We save the exact viewport offset before fit
+  // and restore it afterward — no "was at bottom" heuristic needed.
+  // If the user was at the bottom, prevViewportY == baseY and they
+  // stay at the bottom naturally. If they scrolled up, they stay put.
   _safeFit() {
     if (this._fitDebounceTimer) {
       clearTimeout(this._fitDebounceTimer);
     }
     this._fitDebounceTimer = setTimeout(() => {
       this._fitDebounceTimer = null;
-      const wasAtBottom = this._isAtBottom();
       const prevViewportY = this.terminal.buffer.active.viewportY;
 
       this.fitAddon.fit();
       // Also update the PTY dimensions so the shell knows the new size
       window.attune.resizePty(this.id, this.terminal.cols, this.terminal.rows);
 
-      // After fit, restore scroll position
-      if (wasAtBottom) {
-        this.terminal.scrollToBottom();
-      } else {
-        // Clamp to valid range after resize (baseY may have changed)
-        const maxY = this.terminal.buffer.active.baseY;
-        const targetY = Math.min(prevViewportY, maxY);
-        this.terminal.scrollToLine(targetY);
-      }
+      // Restore exact scroll position, clamped to valid range
+      const maxY = this.terminal.buffer.active.baseY;
+      const targetY = Math.min(prevViewportY, maxY);
+      this.terminal.scrollToLine(targetY);
     }, 50);
   }
 
@@ -155,11 +140,6 @@ export class TerminalSession {
       // WebGL not available, fall back to canvas (block chars may have gaps)
     }
 
-    // Track user scroll: detect when the user scrolls away from bottom
-    this.terminal.onScroll(() => {
-      this._userScrolledUp = !this._isAtBottom();
-    });
-
     // Fit after a frame to ensure container has dimensions
     requestAnimationFrame(() => {
       this.fitAddon.fit();
@@ -169,14 +149,12 @@ export class TerminalSession {
     await window.attune.createPty(this.id, this.directory, command || 'claude');
 
     // Receive PTY output
+    // xterm.js natively auto-scrolls on write when the viewport is at the
+    // bottom, and stays put when the user has scrolled up. No manual
+    // scrollToBottom() needed — that was what caused the "yank to bottom" bug.
     const cleanupData = window.attune.onPtyData(this.id, (data) => {
       this.terminal.write(data);
-      // xterm.js auto-scrolls on write only when the viewport is already at
-      // the bottom. If a fit() call displaced the viewport, force it back
-      // so the user can follow new output in real time.
-      if (!this._userScrolledUp) {
-        this.terminal.scrollToBottom();
-      }
+
       this._pendingOutput += data;
       if (!this._processThrottleTimer) {
         this._processThrottleTimer = setTimeout(() => {
@@ -200,9 +178,10 @@ export class TerminalSession {
       window.attune.sendInput(this.id, data);
     });
 
-    // Translate macOS Cmd shortcuts to terminal equivalents
+    // Translate macOS Cmd shortcuts to terminal equivalents.
     this.terminal.attachCustomKeyEventHandler((e) => {
       if (e.type !== 'keydown') return true;
+
       if (e.metaKey) {
         // Cmd+Backspace → Ctrl+U (kill line backward)
         if (e.key === 'Backspace') {
@@ -255,13 +234,12 @@ export class TerminalSession {
   }
 
   processOutput(data) {
-    this.recentOutput += data;
+    this.recentOutput += this.stripAnsi(data);
     if (this.recentOutput.length > this.maxBuffer) {
       this.recentOutput = this.recentOutput.slice(-this.maxBuffer);
     }
 
-    const clean = this.stripAnsi(this.recentOutput);
-    const lastChunk = clean.slice(-800);
+    const lastChunk = this.recentOutput.slice(-800);
     const tail = lastChunk.slice(-100);
 
     let newStatus = this.status;
@@ -272,9 +250,10 @@ export class TerminalSession {
     if (/Do you want to (allow|proceed|approve)|Allow once|Allow always|[Yy]\/[Nn]\]?\s*$/.test(lastChunk.slice(-300))) {
       newStatus = 'approval';
     }
-    // Check for Claude Code's input prompt — the > at end of line when waiting
-    // Must be on its own line (start of line or after newline), not part of output text
-    else if (/\n>\s*$/.test(tail) || /^>\s*$/.test(tail.trim()) || /❯\s*$/.test(tail)) {
+    // Check for Claude Code's input prompt — the > on its own line when waiting.
+    // We check the last 500 chars (not just tail/100) because Claude Code's
+    // status bar renders BELOW the > prompt, pushing it further back in the buffer.
+    else if (/\n>\s*\n/.test(lastChunk.slice(-500)) || /\n>\s*$/.test(lastChunk.slice(-500)) || /❯\s*$/.test(lastChunk.slice(-300))) {
       newStatus = 'waiting';
     }
     // Detect active work states — use word boundaries and specific tool patterns
@@ -305,22 +284,30 @@ export class TerminalSession {
       const now = Date.now();
       const cooldownOk = (now - this.lastNotifyTime) >= this.notifyCooldownMs;
 
-      if (newStatus === 'approval' && cooldownOk) {
-        this.lastNotifyTime = now;
-        window.attune.notify('Action Required: Claude needs permission', 'A tool use is waiting for your approval.', 'approval');
-      } else if (newStatus === 'waiting' && isActiveState(prevStatus) && cooldownOk) {
-        this.lastNotifyTime = now;
-        window.attune.notify('Claude finished the task', 'Ready for your next message.', 'waiting');
+      if (newStatus === 'approval') {
+        // Scroll down so user sees the approval prompt
+        requestAnimationFrame(() => this.terminal.scrollToBottom());
+        if (cooldownOk) {
+          this.lastNotifyTime = now;
+          window.attune.notify('Action Required: Claude needs permission', 'A tool use is waiting for your approval.', 'approval');
+        }
+      } else if (newStatus === 'waiting' && isActiveState(prevStatus)) {
+        // Scroll down so user sees Claude's response and the input prompt
+        requestAnimationFrame(() => this.terminal.scrollToBottom());
+        if (cooldownOk) {
+          this.lastNotifyTime = now;
+          window.attune.notify('Claude finished the task', 'Ready for your next message.', 'waiting');
+        }
       }
     }
 
     // Parse cost and context info from Claude Code's status bar
     // Format: "Opus 4.6  |  Team Resources  |  ctx: 12% used / 88% left  |  $0.16"
-    const costMatch = clean.match(/\|\s*\$(\d+\.\d+)/);
+    const costMatch = this.recentOutput.match(/\|\s*\$(\d+\.\d+)/);
     if (costMatch) {
       this.estimatedCost = '$' + costMatch[1];
     }
-    const ctxMatch = clean.match(/ctx:\s*(\d+)%\s*used/);
+    const ctxMatch = this.recentOutput.match(/ctx:\s*(\d+)%\s*used/);
     if (ctxMatch) {
       this.contextPercent = parseInt(ctxMatch[1]);
     }

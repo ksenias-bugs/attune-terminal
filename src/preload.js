@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('attune', {
   getLastSeenVersion: () => ipcRenderer.invoke('get-last-seen-version'),
   setLastSeenVersion: (v) => ipcRenderer.invoke('set-last-seen-version', v),
   openExternalUrl: (url) => ipcRenderer.invoke('open-external-url', url),
+  checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
   setDefaultDirectory: (dirPath) => ipcRenderer.invoke('set-default-directory', dirPath),
   getUsername: () => ipcRenderer.invoke('get-username'),
   selectDirectory: () => ipcRenderer.invoke('select-directory'),
@@ -25,6 +26,7 @@ contextBridge.exposeInMainWorld('attune', {
   listDirectory: (dirPath) => ipcRenderer.invoke('list-directory', { dirPath }),
 
   readClaudeMd: (dirPath) => ipcRenderer.invoke('read-claude-md', dirPath),
+  getSlashCommands: (directory) => ipcRenderer.invoke('get-slash-commands', directory),
 
   saveSessionState: (state) => ipcRenderer.invoke('save-session-state', state),
   loadSessionState: () => ipcRenderer.invoke('load-session-state'),
@@ -59,4 +61,5 @@ contextBridge.exposeInMainWorld('attune', {
     ipcRenderer.on(channel, listener);
     return () => ipcRenderer.removeListener(channel, listener);
   },
+
 });

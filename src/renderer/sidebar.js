@@ -1,21 +1,3 @@
-const SLASH_COMMANDS = [
-  { name: '/sales-sync', desc: 'Weekly sales pipeline sync' },
-  { name: '/cs-sync', desc: 'Customer success sync' },
-  { name: '/partner-sync', desc: 'Partner ecosystem sync' },
-  { name: '/marketing-sync', desc: 'Marketing initiatives sync' },
-  { name: '/pmw', desc: 'Process meeting transcript' },
-  { name: '/expense-recon', desc: 'Reconcile Ramp expenses' },
-  { name: '/new-transcript-sort', desc: 'Sort new transcripts' },
-  { name: '/client-email-sync', desc: 'Sync client emails' },
-  { name: '/relationship-timeline', desc: 'Build client timeline' },
-  { name: '/brand-voice', desc: 'Draft in Attune voice' },
-  { name: '/brand-visual', desc: 'Create presentations/decks' },
-  { name: '/meeting-roi', desc: 'Evaluate meeting ROI' },
-  { name: '/setup-mcp', desc: 'Set up MCP servers' },
-  { name: '/second-brain-onboarding', desc: 'Learn the system' },
-  { name: '/archive-logs', desc: 'Archive daily logs' },
-];
-
 export class Sidebar {
   constructor(onCommandClick, onSessionClick) {
     this.onCommandClick = onCommandClick;
@@ -23,18 +5,24 @@ export class Sidebar {
     this.commandListEl = document.getElementById('slash-commands');
     this.recentSessionsEl = document.getElementById('recent-sessions');
     this.currentDirectory = null;
+    this._currentCommandsDir = null;
+    this._currentSessionsDir = null;
 
-    this.renderCommands();
+    this.renderCommands([]);
   }
 
-  renderCommands() {
+  renderCommands(commands) {
     this.commandListEl.innerHTML = '';
-    for (const cmd of SLASH_COMMANDS) {
+    if (!commands || commands.length === 0) {
+      this.commandListEl.innerHTML = '<div class="recent-sessions-empty">No commands found</div>';
+      return;
+    }
+    for (const cmd of commands) {
       const item = document.createElement('div');
       item.className = 'command-item';
       item.innerHTML = `
-        <span class="command-name">${cmd.name}</span>
-        <span class="command-desc">${cmd.desc}</span>
+        <span class="command-name">${this.escapeHtml(cmd.name)}</span>
+        <span class="command-desc">${this.escapeHtml(cmd.desc)}</span>
       `;
       item.addEventListener('click', () => {
         if (this.onCommandClick) {
@@ -45,7 +33,23 @@ export class Sidebar {
     }
   }
 
+  async loadCommands(directory) {
+    // Avoid redundant reloads for the same directory
+    if (directory === this._currentCommandsDir) return;
+    this._currentCommandsDir = directory;
+    try {
+      const commands = await window.attune.getSlashCommands(directory);
+      this.renderCommands(commands);
+    } catch (e) {
+      console.error('Failed to load slash commands:', e);
+      this.renderCommands([]);
+    }
+  }
+
   async loadRecentSessions(directory) {
+    if (directory === this._currentSessionsDir) return;
+    this._currentSessionsDir = directory;
+
     if (!directory) {
       this.recentSessionsEl.innerHTML = '<div class="recent-sessions-empty">No recent sessions</div>';
       return;

@@ -555,6 +555,99 @@ ipcMain.handle('list-directory', async (event, { dirPath }) => {
   }
 });
 
+// IPC: Scan for slash commands and skills from filesystem
+ipcMain.handle('get-slash-commands', async (event, directory) => {
+  const commands = [];
+
+  // Helper: extract description from a .md file (first non-empty, non-header, non-frontmatter line)
+  // When checkDescriptionLine is true, also looks for a "Description: ..." prefix line (used by SKILL.md)
+  async function extractDesc(filePath, { checkDescriptionLine = false } = {}) {
+    try {
+      const content = await fs.promises.readFile(filePath, 'utf8');
+      const lines = content.split('\n');
+      let inFrontmatter = false;
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed === '---') {
+          inFrontmatter = !inFrontmatter;
+          continue;
+        }
+        if (inFrontmatter) continue;
+        if (!trimmed) continue;
+        // Check for Description: line (skills only)
+        if (checkDescriptionLine) {
+          const descMatch = trimmed.match(/^Description:\s*(.+)/i);
+          if (descMatch) return descMatch[1].slice(0, 80);
+        }
+        if (trimmed.startsWith('#')) continue;
+        // First non-header, non-empty line
+        return trimmed.slice(0, 80);
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  // Helper: scan a commands directory for .md files
+  async function scanCommandsDir(dirPath, seen) {
+    try {
+      const entries = await fs.promises.readdir(dirPath);
+      for (const entry of entries) {
+        if (!entry.endsWith('.md')) continue;
+        const name = '/' + entry.replace(/\.md$/, '');
+        if (seen.has(name)) continue;
+        seen.add(name);
+        const desc = await extractDesc(path.join(dirPath, entry));
+        commands.push({ name, desc: desc || name.slice(1) });
+      }
+    } catch (e) {
+      // Directory doesn't exist — that's fine
+    }
+  }
+
+  // Helper: scan a skills directory for skill folders containing SKILL.md
+  async function scanSkillsDir(dirPath, seen) {
+    try {
+      const entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const skillMdPath = path.join(dirPath, entry.name, 'SKILL.md');
+        try {
+          await fs.promises.access(skillMdPath);
+        } catch (e) {
+          continue; // No SKILL.md in this folder
+        }
+        const name = '/' + entry.name;
+        if (seen.has(name)) continue;
+        seen.add(name);
+        const desc = await extractDesc(skillMdPath, { checkDescriptionLine: true });
+        commands.push({ name, desc: desc || entry.name });
+      }
+    } catch (e) {
+      // Directory doesn't exist — that's fine
+    }
+  }
+
+  const seen = new Set();
+
+  // 1. User-level commands: ~/.claude/commands/*.md
+  await scanCommandsDir(path.join(os.homedir(), '.claude', 'commands'), seen);
+
+  // 2. Project-level commands: <directory>/.claude/commands/*.md
+  if (directory) {
+    await scanCommandsDir(path.join(directory, '.claude', 'commands'), seen);
+  }
+
+  // 3. Project-level skills: <directory>/.claude/skills/*/SKILL.md
+  if (directory) {
+    await scanSkillsDir(path.join(directory, '.claude', 'skills'), seen);
+  }
+
+  // Sort alphabetically by name
+  commands.sort((a, b) => a.name.localeCompare(b.name));
+
+  return commands;
+});
+
 // IPC: Read CLAUDE.md from a directory (or .claude/CLAUDE.md as fallback)
 ipcMain.handle('read-claude-md', async (event, dirPath) => {
   try {

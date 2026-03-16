@@ -234,6 +234,13 @@ class AttuneApp {
     } catch (e) {
       console.warn('Walkthrough check failed:', e);
     }
+
+    // Check for updates in the background on startup
+    try {
+      this.checkForUpdatesOnStartup();
+    } catch (e) {
+      // Never block app startup on a failed update check
+    }
   }
 
   // ---- Font Size ----
@@ -320,8 +327,9 @@ class AttuneApp {
     this.addTabElement(id, customName || (restoreInfo ? 'Saved Session' : 'New Session'));
     this.switchToTab(id);
 
-    // Load recent sessions and file explorer for this directory
+    // Load recent sessions, commands, and file explorer for this directory
     this.sidebar.loadRecentSessions(directory);
+    this.sidebar.loadCommands(directory);
     this.fileExplorer.setDirectory(directory);
 
     this.saveSessionState();
@@ -469,6 +477,7 @@ class AttuneApp {
           dirPathEl.textContent = this.shortenPath(dir);
           dirPathEl.title = dir;
           this.sidebar.loadRecentSessions(dir);
+          this.sidebar.loadCommands(dir);
           this.fileExplorer.setDirectory(dir);
           this.saveSessionState();
         }
@@ -484,6 +493,7 @@ class AttuneApp {
           dirPathEl.textContent = this.shortenPath(this.defaultDirectory);
           dirPathEl.title = this.defaultDirectory;
           this.sidebar.loadRecentSessions(this.defaultDirectory);
+          this.sidebar.loadCommands(this.defaultDirectory);
           this.fileExplorer.setDirectory(this.defaultDirectory);
         }
       });
@@ -655,6 +665,7 @@ class AttuneApp {
 
     // Refresh sidebar, file explorer, and CLAUDE.md preview for this directory
     this.sidebar.loadRecentSessions(directory);
+    this.sidebar.loadCommands(directory);
     this.fileExplorer.setDirectory(directory);
 
     // Show restart bar when the PTY exits
@@ -771,6 +782,7 @@ class AttuneApp {
     // Update sidebar and file explorer for this tab's directory
     if (tab) {
       this.sidebar.loadRecentSessions(tab.directory);
+      this.sidebar.loadCommands(tab.directory);
       this.fileExplorer.setDirectory(tab.directory);
     }
 
@@ -1044,6 +1056,7 @@ class AttuneApp {
           dirPathEl.title = dir;
         }
         this.sidebar.loadRecentSessions(dir);
+        this.sidebar.loadCommands(dir);
         this.fileExplorer.setDirectory(dir);
         this.saveSessionState();
       } else {
@@ -1387,31 +1400,42 @@ class AttuneApp {
     document.body.appendChild(overlay);
   }
 
+  // Core update check — returns { hasUpdate, latestVersion, htmlUrl } or null on failure
+  async _fetchUpdateInfo() {
+    const currentVersion = await window.attune.getAppVersion();
+    const result = await window.attune.checkForUpdates();
+    if (!result.ok) return null;
+
+    const latestTag = result.tagName || '';
+    const latestVersion = latestTag.replace(/^v/, '');
+
+    if (this.isNewerVersion(latestVersion, currentVersion)) {
+      return { hasUpdate: true, latestVersion, htmlUrl: result.htmlUrl };
+    }
+    return { hasUpdate: false };
+  }
+
+  // Button-triggered update check (writes to a status element in the launcher)
   async checkForUpdates(statusEl) {
     statusEl.textContent = 'Checking...';
     statusEl.className = 'update-status';
 
     try {
-      const currentVersion = await window.attune.getAppVersion();
-      // Use IPC handler (main process calls `gh api` with auth — works for private repos)
-      const result = await window.attune.checkForUpdates();
+      const info = await this._fetchUpdateInfo();
 
-      if (!result.ok) {
+      if (!info) {
         statusEl.textContent = 'Could not check for updates';
         statusEl.className = 'update-status update-error';
         this.clearUpdateStatus(statusEl);
         return;
       }
 
-      const latestTag = result.tagName || '';
-      const latestVersion = latestTag.replace(/^v/, '');
-
-      if (this.isNewerVersion(latestVersion, currentVersion)) {
-        statusEl.textContent = `v${latestVersion} available`;
+      if (info.hasUpdate) {
+        statusEl.textContent = `v${info.latestVersion} available`;
         statusEl.className = 'update-status update-available';
         statusEl.style.cursor = 'pointer';
         statusEl.onclick = () => {
-          window.attune.openExternalUrl(result.htmlUrl);
+          window.attune.openExternalUrl(info.htmlUrl);
         };
       } else {
         statusEl.textContent = 'Up to date';
@@ -1422,6 +1446,41 @@ class AttuneApp {
       statusEl.textContent = 'Could not check for updates';
       statusEl.className = 'update-status update-error';
       this.clearUpdateStatus(statusEl);
+    }
+  }
+
+  // Startup update check — shows a non-intrusive banner at the top of the terminal area
+  async checkForUpdatesOnStartup() {
+    try {
+      const info = await this._fetchUpdateInfo();
+      if (!info || !info.hasUpdate) return;
+
+      // Don't show the banner if one is already visible
+      if (document.getElementById('update-banner')) return;
+
+      const banner = document.createElement('div');
+      banner.id = 'update-banner';
+      banner.className = 'update-banner';
+      banner.innerHTML = `
+        <span class="update-banner-text">
+          A new version (v${info.latestVersion}) is available.
+        </span>
+        <button class="update-banner-link">Download</button>
+        <button class="update-banner-dismiss" title="Dismiss">&times;</button>
+      `;
+
+      banner.querySelector('.update-banner-link').addEventListener('click', () => {
+        window.attune.openExternalUrl(info.htmlUrl);
+      });
+
+      banner.querySelector('.update-banner-dismiss').addEventListener('click', () => {
+        banner.remove();
+      });
+
+      const terminalArea = document.getElementById('terminal-area');
+      terminalArea.insertBefore(banner, terminalArea.firstChild);
+    } catch (e) {
+      // Silent failure — never block the app on update check
     }
   }
 
