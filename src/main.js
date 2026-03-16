@@ -270,6 +270,20 @@ ipcMain.handle('open-external-url', (event, url) => {
   return shell.openExternal(url);
 });
 
+// IPC: Check for updates via GitHub API (public repo, no auth needed)
+ipcMain.handle('check-for-updates', async () => {
+  try {
+    const res = await fetch('https://api.github.com/repos/ksenias-bugs/attune-terminal/releases/latest', {
+      headers: { 'User-Agent': 'attune-terminal' },
+    });
+    if (!res.ok) return { ok: false };
+    const data = await res.json();
+    return { ok: true, tagName: data.tag_name, htmlUrl: data.html_url };
+  } catch {
+    return { ok: false };
+  }
+});
+
 // IPC: Check if a saved default directory exists in config (for first-launch detection)
 ipcMain.handle('get-default-directory-status', () => {
   const config = readConfig();
