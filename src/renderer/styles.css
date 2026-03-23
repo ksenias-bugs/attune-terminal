@@ -432,10 +432,63 @@ body.file-explorer-collapsed .file-explorer-toggle svg {
   width: 100%;
   flex: 1;
   min-height: 0;
+  overflow: hidden;
 }
 
 .tab-terminal-inner .xterm {
   height: 100%;
+}
+
+/* Input area pinned to bottom of terminal wrapper */
+.tab-input-area {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 8px 0 4px;
+  flex-shrink: 0;
+}
+
+.tab-input-textarea {
+  flex: 1;
+  resize: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  outline: none;
+  line-height: 1.4;
+}
+
+.tab-input-textarea::placeholder {
+  color: var(--text-muted);
+}
+
+.tab-input-textarea:focus {
+  border-color: var(--accent);
+}
+
+.tab-input-send {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+}
+
+.tab-input-send:hover {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
 }
 
 /* Drag-and-drop file highlight */
@@ -465,6 +518,7 @@ body.file-explorer-collapsed .file-explorer-toggle svg {
 .split-pane .tab-terminal-inner {
   flex: 1;
   min-height: 0;
+  overflow: hidden;
 }
 
 /* Subtle border on active pane to indicate focus */

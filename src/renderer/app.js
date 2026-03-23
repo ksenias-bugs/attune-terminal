@@ -40,10 +40,23 @@ class AttuneApp {
       (command) => {
         const tab = this.tabs.get(this.activeTabId);
         if (tab && tab.state === 'terminal') {
-          const term = this.getActiveTerminal(tab);
-          if (term) {
-            term.sendCommand(command);
-            term.focus();
+          const ptyId = this.getActivePtyId(tab);
+          const activeTextarea = tab.splitTextarea && tab.activePane === 'right'
+            ? tab.splitTextarea
+            : tab.textarea;
+          if (activeTextarea && ptyId) {
+            activeTextarea.value = command;
+            activeTextarea.dispatchEvent(new Event('input'));
+            // Auto-send slash commands
+            window.attune.sendInput(ptyId, command + '\r');
+            activeTextarea.value = '';
+            activeTextarea.style.height = 'auto';
+          } else {
+            const term = this.getActiveTerminal(tab);
+            if (term) {
+              term.sendCommand(command);
+              term.focus();
+            }
           }
         }
       },
@@ -56,11 +69,27 @@ class AttuneApp {
     this.fileExplorer = new FileExplorer((filePath) => {
       const tab = this.tabs.get(this.activeTabId);
       if (tab && tab.state === 'terminal') {
-        const term = this.getActiveTerminal(tab);
-        const ptyId = this.getActivePtyId(tab);
-        if (term && ptyId) {
-          window.attune.sendInput(ptyId, filePath);
-          term.focus();
+        // Insert file path into active textarea
+        const textarea = tab.splitTextarea && document.activeElement === tab.splitTextarea
+          ? tab.splitTextarea
+          : tab.textarea;
+
+        if (textarea) {
+          const start = textarea.selectionStart;
+          const end = textarea.selectionEnd;
+          const value = textarea.value;
+          textarea.value = value.substring(0, start) + filePath + value.substring(end);
+          textarea.selectionStart = textarea.selectionEnd = start + filePath.length;
+          textarea.focus();
+          textarea.dispatchEvent(new Event('input'));
+        } else {
+          // Fallback: send directly to PTY
+          const term = this.getActiveTerminal(tab);
+          const ptyId = this.getActivePtyId(tab);
+          if (term && ptyId) {
+            window.attune.sendInput(ptyId, filePath);
+            term.focus();
+          }
         }
       }
     });
@@ -547,12 +576,71 @@ class AttuneApp {
     tokenBar.innerHTML = '<span class="token-count"></span><span class="token-cost"></span>';
     termOuter.appendChild(tokenBar);
 
+    // Create input area
+    const inputArea = document.createElement('div');
+    inputArea.className = 'tab-input-area';
+
+    const textarea = document.createElement('textarea');
+    textarea.className = 'tab-input-textarea';
+    textarea.placeholder = 'Message Claude...';
+    textarea.rows = 1;
+    textarea.spellcheck = false;
+
+    // Send button
+    const sendBtn = document.createElement('button');
+    sendBtn.className = 'tab-input-send';
+    sendBtn.title = 'Send (Enter)';
+    sendBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 8L14 8M14 8L9 3M14 8L9 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+    inputArea.appendChild(textarea);
+    inputArea.appendChild(sendBtn);
+    termOuter.appendChild(inputArea);
+
+    // Store textarea reference on tab
+    tab.textarea = textarea;
+    tab.inputArea = inputArea;
+
+    // Auto-resize textarea
+    textarea.addEventListener('input', () => {
+      textarea.style.height = 'auto';
+      const maxHeight = parseInt(getComputedStyle(textarea).lineHeight) * 6;
+      textarea.style.height = Math.min(textarea.scrollHeight, maxHeight) + 'px';
+    });
+
+    // Send on Enter (Shift+Enter for newline)
+    const sendMessage = () => {
+      const text = textarea.value;
+      if (!text.trim()) return;
+      window.attune.sendInput(tabId, text + '\r');
+      textarea.value = '';
+      textarea.style.height = 'auto';
+      textarea.focus();
+    };
+
+    textarea.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+      }
+      // Escape moves focus to terminal
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        // tab.terminal may not be set yet during init, use variable if available
+        if (tab.terminal) tab.terminal.focus();
+      }
+    });
+
+    sendBtn.addEventListener('click', sendMessage);
+
     const terminal = new TerminalSession(
       tabId,
       directory,
       termInner,
       (status, elapsed) => {
         this.updateTabStatus(tabId, status);
+        if (status === 'waiting' && tab.textarea) {
+          tab.textarea.focus();
+        }
       },
       this.isDark
     );
@@ -602,9 +690,25 @@ class AttuneApp {
         }
       }
 
-      if (paths.length > 0 && ptyId && term) {
-        window.attune.sendInput(ptyId, paths.join(' '));
-        term.focus();
+      if (paths.length > 0) {
+        const joinedPaths = paths.join(' ');
+        // Determine the right textarea based on which pane was targeted
+        const targetTextarea = (tab.isSplit && ptyId === tab.splitPtyId)
+          ? tab.splitTextarea
+          : tab.textarea;
+
+        if (targetTextarea) {
+          const start = targetTextarea.selectionStart;
+          const end = targetTextarea.selectionEnd;
+          const value = targetTextarea.value;
+          targetTextarea.value = value.substring(0, start) + joinedPaths + value.substring(end);
+          targetTextarea.selectionStart = targetTextarea.selectionEnd = start + joinedPaths.length;
+          targetTextarea.focus();
+          targetTextarea.dispatchEvent(new Event('input'));
+        } else if (ptyId && term) {
+          window.attune.sendInput(ptyId, joinedPaths);
+          term.focus();
+        }
       }
     });
 
@@ -999,10 +1103,6 @@ class AttuneApp {
     const tab = this.tabs.get(this.activeTabId);
     if (!tab || tab.state !== 'terminal') return;
 
-    const term = this.getActiveTerminal(tab);
-    const ptyId = this.getActivePtyId(tab);
-    if (!term || !ptyId) return;
-
     const paths = await window.attune.selectFile();
     if (!paths || paths.length === 0) return;
 
@@ -1011,8 +1111,29 @@ class AttuneApp {
       .map((p) => (p.includes(' ') ? `"${p}"` : p))
       .join(' ');
 
-    window.attune.sendInput(ptyId, formatted);
-    term.focus();
+    // Determine which textarea is active (main or split)
+    const textarea = tab.splitTextarea && document.activeElement === tab.splitTextarea
+      ? tab.splitTextarea
+      : tab.textarea;
+
+    if (textarea) {
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const value = textarea.value;
+      textarea.value = value.substring(0, start) + formatted + value.substring(end);
+      textarea.selectionStart = textarea.selectionEnd = start + formatted.length;
+      textarea.focus();
+      // Trigger resize
+      textarea.dispatchEvent(new Event('input'));
+    } else {
+      // Fallback: send directly to PTY if no textarea available
+      const term = this.getActiveTerminal(tab);
+      const ptyId = this.getActivePtyId(tab);
+      if (term && ptyId) {
+        window.attune.sendInput(ptyId, formatted);
+        term.focus();
+      }
+    }
   }
 
   // ---- Directory Switcher ----
@@ -1644,6 +1765,58 @@ class AttuneApp {
       leftPane.appendChild(existingInner);
     }
 
+    // Create input area for left pane
+    const leftInputArea = document.createElement('div');
+    leftInputArea.className = 'tab-input-area';
+
+    const leftTextarea = document.createElement('textarea');
+    leftTextarea.className = 'tab-input-textarea';
+    leftTextarea.placeholder = 'Message Claude...';
+    leftTextarea.rows = 1;
+    leftTextarea.spellcheck = false;
+
+    const leftSendBtn = document.createElement('button');
+    leftSendBtn.className = 'tab-input-send';
+    leftSendBtn.title = 'Send (Enter)';
+    leftSendBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 8L14 8M14 8L9 3M14 8L9 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+    leftInputArea.appendChild(leftTextarea);
+    leftInputArea.appendChild(leftSendBtn);
+    leftPane.appendChild(leftInputArea);
+
+    // Reassign tab.textarea to left pane's textarea
+    tab.textarea = leftTextarea;
+    tab.inputArea = leftInputArea;
+
+    // Auto-resize left textarea
+    leftTextarea.addEventListener('input', () => {
+      leftTextarea.style.height = 'auto';
+      const maxHeight = parseInt(getComputedStyle(leftTextarea).lineHeight) * 6;
+      leftTextarea.style.height = Math.min(leftTextarea.scrollHeight, maxHeight) + 'px';
+    });
+
+    const sendLeftMessage = () => {
+      const text = leftTextarea.value;
+      if (!text.trim()) return;
+      window.attune.sendInput(tab.id, text + '\r');
+      leftTextarea.value = '';
+      leftTextarea.style.height = 'auto';
+      leftTextarea.focus();
+    };
+
+    leftTextarea.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendLeftMessage();
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        if (tab.terminal) tab.terminal.focus();
+      }
+    });
+
+    leftSendBtn.addEventListener('click', sendLeftMessage);
+
     // Create divider with drag-to-resize
     const divider = document.createElement('div');
     divider.className = 'split-divider';
@@ -1700,6 +1873,25 @@ class AttuneApp {
     });
     rightPane.appendChild(closeBtn);
 
+    // Create input area for right (split) pane
+    const splitInputArea = document.createElement('div');
+    splitInputArea.className = 'tab-input-area';
+
+    const splitTextarea = document.createElement('textarea');
+    splitTextarea.className = 'tab-input-textarea';
+    splitTextarea.placeholder = 'Message Claude...';
+    splitTextarea.rows = 1;
+    splitTextarea.spellcheck = false;
+
+    const splitSendBtn = document.createElement('button');
+    splitSendBtn.className = 'tab-input-send';
+    splitSendBtn.title = 'Send (Enter)';
+    splitSendBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 8L14 8M14 8L9 3M14 8L9 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+    splitInputArea.appendChild(splitTextarea);
+    splitInputArea.appendChild(splitSendBtn);
+    rightPane.appendChild(splitInputArea);
+
     // Clear wrapper and rebuild with split layout
     wrapper.innerHTML = '';
     wrapper.classList.add('split');
@@ -1717,6 +1909,9 @@ class AttuneApp {
       rightInner,
       (status, elapsed) => {
         this.updateTabStatus(splitPtyId, status);
+        if (status === 'waiting' && tab.splitTextarea) {
+          tab.splitTextarea.focus();
+        }
       },
       this.isDark
     );
@@ -1726,6 +1921,39 @@ class AttuneApp {
     tab.splitTerminal = splitTerminal;
     tab.splitPtyId = splitPtyId;
     tab.activePane = 'left';
+
+    // Store split textarea references
+    tab.splitTextarea = splitTextarea;
+    tab.splitInputArea = splitInputArea;
+
+    // Auto-resize split textarea
+    splitTextarea.addEventListener('input', () => {
+      splitTextarea.style.height = 'auto';
+      const maxHeight = parseInt(getComputedStyle(splitTextarea).lineHeight) * 6;
+      splitTextarea.style.height = Math.min(splitTextarea.scrollHeight, maxHeight) + 'px';
+    });
+
+    const sendSplitMessage = () => {
+      const text = splitTextarea.value;
+      if (!text.trim()) return;
+      window.attune.sendInput(tab.splitPtyId, text + '\r');
+      splitTextarea.value = '';
+      splitTextarea.style.height = 'auto';
+      splitTextarea.focus();
+    };
+
+    splitTextarea.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendSplitMessage();
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        if (tab.splitTerminal) tab.splitTerminal.focus();
+      }
+    });
+
+    splitSendBtn.addEventListener('click', sendSplitMessage);
 
     // Focus management: clicking a pane makes it active
     leftPane.addEventListener('mousedown', () => {
@@ -1796,10 +2024,62 @@ class AttuneApp {
       wrapper.appendChild(leftInner);
     }
 
+    // Recreate input area for single pane
+    const inputArea = document.createElement('div');
+    inputArea.className = 'tab-input-area';
+
+    const textarea = document.createElement('textarea');
+    textarea.className = 'tab-input-textarea';
+    textarea.placeholder = 'Message Claude...';
+    textarea.rows = 1;
+    textarea.spellcheck = false;
+
+    const sendBtn = document.createElement('button');
+    sendBtn.className = 'tab-input-send';
+    sendBtn.title = 'Send (Enter)';
+    sendBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 8L14 8M14 8L9 3M14 8L9 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+    inputArea.appendChild(textarea);
+    inputArea.appendChild(sendBtn);
+    wrapper.appendChild(inputArea);
+
+    tab.textarea = textarea;
+    tab.inputArea = inputArea;
+
+    textarea.addEventListener('input', () => {
+      textarea.style.height = 'auto';
+      const maxHeight = parseInt(getComputedStyle(textarea).lineHeight) * 6;
+      textarea.style.height = Math.min(textarea.scrollHeight, maxHeight) + 'px';
+    });
+
+    const sendMessage = () => {
+      const text = textarea.value;
+      if (!text.trim()) return;
+      window.attune.sendInput(tab.id, text + '\r');
+      textarea.value = '';
+      textarea.style.height = 'auto';
+      textarea.focus();
+    };
+
+    textarea.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        if (tab.terminal) tab.terminal.focus();
+      }
+    });
+
+    sendBtn.addEventListener('click', sendMessage);
+
     // Clear split state
     tab.isSplit = false;
     tab.splitTerminal = null;
     tab.splitPtyId = null;
+    tab.splitTextarea = null;
+    tab.splitInputArea = null;
     tab.activePane = null;
 
     // Refit and focus the remaining terminal — delay for flex to settle
